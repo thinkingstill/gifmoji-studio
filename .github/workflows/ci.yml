@@ -1,0 +1,94 @@
+name: CI
+
+# 只做校验，不做部署：本仓库刻意不包含 WorkBuddy 托管产物与任何密钥。
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }} 冒烟测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version | head -n 1
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 依赖漏洞审计
+        run: npm run audit
+
+      - name: 语法检查
+        run: |
+          node --check server.js
+          node --check public/app.js
+          node --check test/smoke.mjs
+
+      - name: 冒烟测试（上传分镜 → FFmpeg 合成 GIF → 下载校验）
+        run: npm test
+
+  secret-scan:
+    name: 密钥与产物扫描
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: test
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 历史提交中不得出现密钥或部署标识
+        run: |
+          set -euo pipefail
+          pattern='github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}|AKID[A-Za-z0-9]{10,}|sharecode=|app\.workbuddy\.host'
+          if git log -p --all | grep -nEI "$pattern"; then
+            echo "::error::检测到疑似密钥或 WorkBuddy 部署标识，请立即吊销并清理提交历史。"
+            exit 1
+          fi
+          if git ls-files | grep -E '^(\.env(\..*)?|node_modules/|dist/|data/)' ; then
+            echo "::error::仓库中不应包含环境变量文件、依赖或构建产物。"
+            exit 1
+          fi
+          echo "扫描通过：未发现密钥、环境变量文件或构建产物。"
+
+  ci-status:
+    name: CI 汇总
+    runs-on: ubuntu-latest
+    needs: [test, secret-scan]
+    if: always()
+    steps:
+      - name: 汇总结果
+        run: |
+          echo "测试：${{ needs.test.result }} / 扫描：${{ needs.secret-scan.result }}"
+          if [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.secret-scan.result }}" != "success" ]; then
+            exit 1
+          fi

@@ -54,6 +54,28 @@ TOKENHUB_API_KEY=你的密钥 npm start
 | `FFMPEG_PATH` | FFmpeg 可执行文件路径 | `ffmpeg` |
 | `DATA_DIR` | 分镜和 GIF 临时目录 | 系统临时目录 |
 
+## 开发与测试
+
+```bash
+npm install
+npm test      # 冒烟测试：上传分镜 → FFmpeg 合成 GIF → 校验下载
+npm start     # 本地启动
+```
+
+冒烟测试会自行拉起一个仅监听 `127.0.0.1` 的服务实例，使用随机临时目录，**不需要任何模型密钥**，因此可以安全地在 CI 中运行。
+
+## 持续集成
+
+`.github/workflows/ci.yml` 在推送到 `main`、发起 PR 或手动触发时运行：
+
+| 任务 | 内容 |
+|---|---|
+| `test` | Node 20 / 22 矩阵：安装 FFmpeg → `npm ci` → 依赖审计 → 语法检查 → 冒烟测试 |
+| `secret-scan` | 扫描全部提交历史中的 PAT / API Key / sharecode 等疑似密钥，并禁止提交 `.env`、依赖与构建产物 |
+| `ci-status` | 汇总结果，可作为分支保护的必过检查 |
+
+CI 只做校验与测试，**不包含部署步骤**：本项目在 WorkBuddy 上的托管产物与访问地址不会进入代码库。
+
 ## 自定义接口安全
 
 服务端会代理自定义模型地址，因此启用了以下限制：
