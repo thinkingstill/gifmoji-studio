@@ -26,7 +26,7 @@ jobs:
         node: [20, 22]
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: 安装 FFmpeg
         run: |
@@ -35,7 +35,7 @@ jobs:
           ffmpeg -version | head -n 1
 
       - name: 配置 Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -59,18 +59,30 @@ jobs:
     name: 密钥与产物扫描
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: test
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: 历史提交中不得出现密钥或部署标识
+        env:
+          # 前缀拆开拼接、正则运行时组装，避免本文件自身成为误报来源；
+          # 这里只用纯字母数字标记，避免与"密钥前缀"同名。
+          PART_ONE: 'github'
+          PART_TWO: '_pat_'
+          PART_THREE: 'ghp'
+          PART_FOUR: 'sk'
+          AK_LABEL: 'AKID'
         run: |
           set -euo pipefail
-          pattern='github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{20,}|AKID[A-Za-z0-9]{10,}|sharecode=|app\.workbuddy\.host'
-          if git log -p --all | grep -nEI "$pattern"; then
+          pattern="${PART_ONE}${PART_TWO}[A-Za-z0-9_]{20,}|${PART_THREE}_[A-Za-z0-9]{20,}|${PART_FOUR}-[A-Za-z0-9]{20,}|${AK_LABEL}[A-Za-z0-9]{10,}"
+          pattern="${pattern}|share""code=|workbuddy\.host"
+          # 排除本工作流文件，其中的检测规则属于定义而非泄露
+          hits=$(git log -p --all -- . ":(exclude).github/workflows/ci.yml" | grep -nEI "$pattern" || true)
+          if [ -n "$hits" ]; then
+            echo "命中行数：$(echo "$hits" | wc -l)"
+            echo "$hits" | sed -E 's/([A-Za-z0-9_]{6})[A-Za-z0-9_]{10,}/\1***/g' | head -n 20
             echo "::error::检测到疑似密钥或 WorkBuddy 部署标识，请立即吊销并清理提交历史。"
             exit 1
           fi
