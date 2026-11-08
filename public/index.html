@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="用参考图和一句提示词生成分镜，并通过 FFmpeg 合成微信可用的 GIF 表情。">
+  <meta name="theme-color" content="#f2eee4">
+  <title>GIFMOJI · 表情动画工坊</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z"/><path d="m19 16 .8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16Z"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m21 15-5-5L5 20"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v13m0 0 5-5m-5 5-5-5"/><path d="M4 20h16"/></symbol>
+    <symbol id="i-package" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 8 9 5v8l-9-5V8Zm18 0-9 5v8l9-5V8Z"/></symbol>
+    <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4m10 0h4M3 15h4m10 0h4"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v.2"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3m3 0-1 14H7L6 7m4 4v6m4-6v6"/></symbol>
+    <symbol id="i-wechat" viewBox="0 0 24 24"><path d="M10.5 4C6.4 4 3 6.8 3 10.2c0 1.9 1 3.6 2.8 4.8L5 18l3.1-1.6c.8.2 1.6.3 2.4.3 4.1 0 7.5-2.8 7.5-6.2S14.6 4 10.5 4Z"/><path d="M14 11.5c3.4 0 7 2.4 7 5.5 0 1.6-.9 3-2.4 4l.6 2.2-2.7-1.3c-.7.2-1.5.3-2.3.3-3.4 0-7-2.4-7-5.5 0-.5.1-1 .2-1.4"/><path d="M8 9h.01M13 9h.01"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m7 9 5 5 5-5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 8a7 7 0 0 1 11.5-1L20 12M4 12l2.4 5a7 7 0 0 0 11.5-1"/></symbol>
+  </svg>
+
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="GIFMOJI 首页">
+      <span class="brand-mark">G<span>!</span>F</span>
+      <span class="brand-word">GIFMOJI<small>表情动画工坊</small></span>
+    </a>
+    <div class="header-meta">
+      <span class="status-dot"><i></i> WORKBUDDY HOSTED</span>
+      <button class="text-btn" id="help-button" type="button"><svg><use href="#i-info"/></svg> 使用说明</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow"><span>EMOJI ANIMATION LAB</span><span>NO. 035</span></p>
+        <h1>把一张照片，<br><em>捏成会动的表情。</em></h1>
+        <p class="lede">上传角色参考图，写下一个反应。AI 负责画出连贯分镜，FFmpeg 负责让它循环动起来。</p>
+      </div>
+      <div class="hero-note">
+        <span class="note-index">01—03</span>
+        <p>一句提示词<br>一张参考图<br>一个能在微信里发出去的表情</p>
+        <div class="hero-tape">8 FRAMES / 240 PX / LOOP</div>
+      </div>
+    </section>
+
+    <div class="workspace">
+      <section class="panel panel-create" aria-labelledby="create-title">
+        <header class="panel-head">
+          <span class="step-no">01</span>
+          <div><h2 id="create-title">灵感输入</h2><p>REFERENCE &amp; PROMPT</p></div>
+          <span class="mini-tag">必填</span>
+        </header>
+
+        <div class="field">
+          <div class="label-row"><label for="reference-input">角色参考图</label><span>可选 · 1 张</span></div>
+          <input id="reference-input" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+          <button class="dropzone" id="dropzone" type="button" aria-describedby="upload-note">
+            <span class="drop-icon"><svg><use href="#i-image"/></svg></span>
+            <strong>拖入照片，或点击选择</strong>
+            <small id="upload-note">JPG / PNG / WebP · 最大 15 MB</small>
+            <span class="drop-corner">＋</span>
+          </button>
+          <div class="reference-preview" id="reference-preview" hidden>
+            <img id="reference-image" alt="上传的参考图">
+            <div class="reference-copy"><strong>角色已就位</strong><span id="reference-name">参考图</span></div>
+            <button class="icon-btn" id="remove-reference" type="button" aria-label="移除参考图"><svg><use href="#i-x"/></svg></button>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="label-row"><label for="prompt-input">它现在是什么反应？</label><span id="prompt-count">0 / 2000</span></div>
+          <textarea id="prompt-input" maxlength="2000" rows="4" placeholder="例：一只橘猫看到黄瓜，先震惊后退，再假装什么都没发生，最后心虚地舔爪子。"></textarea>
+          <div class="prompt-chips" aria-label="提示词灵感">
+            <button type="button" data-prompt="一只柴犬听到开饭，从疑惑到狂喜，最后开心到原地转圈。">听到开饭</button>
+            <button type="button" data-prompt="一只橘猫被点名，先假装没听见，再缓慢转头，露出心虚又礼貌的微笑。">假装没听见</button>
+            <button type="button" data-prompt="一只企鹅收到周一早八通知，震惊、崩溃、瘫倒，最后被迫接受现实。">周一早八</button>
+            <button type="button" data-prompt="一只小恐龙努力加班，从精神饱满到眼神涣散，最后给自己竖起大拇指。">努力加班</button>
+          </div>
+        </div>
+
+        <div class="field-grid">
+          <div class="field">
+            <div class="label-row"><label for="style-select">画风</label></div>
+            <div class="select-wrap">
+              <select id="style-select">
+                <option value="3D黏土质感，柔和棚拍光，细腻材质">3D 黏土</option>
+                <option value="扁平矢量插画，粗描边，明亮纯色">扁平插画</option>
+                <option value="日系手绘，干净线稿，轻柔水彩上色">日系手绘</option>
+                <option value="写实摄影质感，真实毛发与自然光">拟真毛发</option>
+                <option value="复古像素艺术，有限色板，清晰轮廓">像素艺术</option>
+                <option value="黑白漫画线稿，网点阴影，夸张表情">黑白漫画</option>
+              </select><svg><use href="#i-chevron"/></svg>
+            </div>
+          </div>
+          <div class="field">
+            <div class="label-row"><label for="motion-select">动态感</label></div>
+            <div class="select-wrap">
+              <select id="motion-select">
+                <option value="Q弹夸张，动作幅度大，喜剧感强">Q 弹夸张</option>
+                <option value="轻微细腻，表情变化为主，动作克制">细腻微动</option>
+                <option value="快速爆发，节奏鲜明，适合快剪">快速爆发</option>
+                <option value="慵懒缓慢，动作拖沓，冷幽默">慵懒冷幽默</option>
+              </select><svg><use href="#i-chevron"/></svg>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="label-row"><label>分镜数量</label><span>每一帧都会生成一张图</span></div>
+          <div class="segment" id="frame-count" role="group" aria-label="分镜数量">
+            <button type="button" data-value="4">4 帧<small>轻量</small></button>
+            <button type="button" data-value="6" class="active">6 帧<small>推荐</small></button>
+            <button type="button" data-value="8">8 帧<small>细腻</small></button>
+          </div>
+        </div>
+
+        <details class="key-box" id="key-box" open>
+          <summary><span><svg><use href="#i-lock"/></svg> 模型与接口</span><span class="key-state" id="key-state">默认接口</span></summary>
+          <div class="key-content">
+            <div class="provider-row">
+              <button type="button" class="provider-preset active" data-preset="hunyuan">混元 TokenHub</button>
+              <button type="button" class="provider-preset" data-preset="custom">自定义接口</button>
+              <button type="button" class="config-reset" id="reset-model">恢复默认</button>
+            </div>
+
+            <div class="model-grid">
+              <div>
+                <label for="protocol-select">接口协议</label>
+                <div class="select-wrap compact-select">
+                  <select id="protocol-select">
+                    <option value="auto">自动识别</option>
+                    <option value="hunyuan" selected>混元 v3.5</option>
+                    <option value="openai-images">OpenAI 图像</option>
+                    <option value="openai-chat">聊天式生图</option>
+                  </select><svg><use href="#i-chevron"/></svg>
+                </div>
+              </div>
+              <div>
+                <label for="model-input">模型 ID</label>
+                <input id="model-input" class="text-input" type="text" autocomplete="off" spellcheck="false" placeholder="模型名称">
+              </div>
+            </div>
+
+            <label for="base-url">Base URL / 完整接口地址</label>
+            <input id="base-url" class="text-input mono-input" type="url" autocomplete="off" spellcheck="false" placeholder="https://api.example.com/v1">
+
+            <label for="api-key">API Key</label>
+            <div class="password-wrap"><input id="api-key" type="password" autocomplete="off" placeholder="sk-..."><button id="toggle-key" type="button">显示</button></div>
+
+            <p id="config-help">默认调用 <strong>hy-image-v3.5-preview</strong>。自定义 Base URL 支持 OpenAI 图像与聊天式生图接口；平台密钥只会发往默认 TokenHub 地址。</p>
+            <label class="remember"><input id="remember-key" type="checkbox"> 本次关闭前记住密钥</label>
+          </div>
+        </details>
+
+        <div class="notice error" id="create-error" role="alert" hidden></div>
+        <button class="primary-btn" id="generate-button" type="button">
+          <span class="btn-icon"><svg><use href="#i-spark"/></svg></span>
+          <span><strong>开始生成分镜</strong><small id="generate-hint">预计调用模型 6 次</small></span>
+          <svg class="btn-arrow"><use href="#i-arrow"/></svg>
+        </button>
+        <p class="cost-note">生成图片按所选模型接口的实际用量计费。建议先用 4 帧测试角色一致性。</p>
+      </section>
+
+      <section class="panel panel-stage" aria-labelledby="stage-title">
+        <header class="panel-head">
+          <span class="step-no">02</span>
+          <div><h2 id="stage-title">分镜台</h2><p>STORYBOARD</p></div>
+          <div class="stage-tools">
+            <span class="mini-tag" id="frame-badge">0 帧</span>
+            <input id="import-frames" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden>
+            <button class="square-btn" id="import-button" type="button" title="导入自己的分镜" aria-label="导入自己的分镜"><svg><use href="#i-plus"/></svg></button>
+          </div>
+        </header>
+
+        <div class="stage-empty" id="stage-empty">
+          <div class="empty-orbit">
+            <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
+            <span class="orbit-face">◕‿◕</span>
+            <span class="orbit-label label-a">起势</span><span class="orbit-label label-b">爆发</span><span class="orbit-label label-c">回环</span>
+          </div>
+          <h3>分镜会在这里排队</h3>
+          <p>左侧写下反应并生成；也可以先导入几张自己的图片，直接测试 GIF 合成。</p>
+          <button type="button" class="ghost-btn" id="empty-import"><svg><use href="#i-upload"/></svg> 导入已有分镜</button>
+        </div>
+
+        <div class="stage-progress" id="stage-progress" hidden>
+          <div class="progress-head"><span id="progress-message">正在调用混元生图…</span><strong id="progress-number">0%</strong></div>
+          <div class="progress-track"><div id="progress-fill"></div></div>
+          <div class="progress-meta"><span id="progress-detail">第 0 / 6 帧</span><span>请勿关闭页面</span></div>
+          <div class="scan-frame"><div class="scan-line"></div><span>HY-IMAGE / RENDERING</span></div>
+        </div>
+
+        <div class="frame-grid" id="frame-grid" aria-live="polite"></div>
+        <div class="stage-footer" id="stage-footer" hidden>
+          <span><svg><use href="#i-film"/></svg> 拖动卡片调整播放顺序</span>
+          <button class="text-btn danger" id="clear-frames" type="button"><svg><use href="#i-trash"/></svg> 清空</button>
+        </div>
+      </section>
+
+      <aside class="panel panel-export" aria-labelledby="export-title">
+        <header class="panel-head">
+          <span class="step-no">03</span>
+          <div><h2 id="export-title">让它动起来</h2><p>COMPOSE &amp; EXPORT</p></div>
+        </header>
+
+        <div class="gif-preview" id="gif-preview">
+          <div class="gif-placeholder" id="gif-placeholder">
+            <div class="placeholder-stack"><span></span><span></span><span></span></div>
+            <strong>GIF 预览区</strong>
+            <p>生成分镜后，在下方设置节奏与画质。</p>
+          </div>
+          <img id="gif-image" alt="合成后的动态表情" hidden>
+          <div class="gif-badge"><i></i> LOOP</div>
+          <div class="gif-size" id="gif-size" hidden>—</div>
+        </div>
+
+        <div class="export-form">
+          <div class="field">
+            <div class="label-row"><label>输出尺寸</label><span>正方形 · px</span></div>
+            <div class="chip-row" id="size-options">
+              <button type="button" data-value="240" class="active"><strong>240</strong><small>微信</small></button>
+              <button type="button" data-value="320"><strong>320</strong><small>标准</small></button>
+              <button type="button" data-value="480"><strong>480</strong><small>高清</small></button>
+              <button type="button" data-value="640"><strong>640</strong><small>大图</small></button>
+            </div>
+          </div>
+
+          <div class="field-grid compact">
+            <div class="field">
+              <div class="label-row"><label>播放节奏</label></div>
+              <div class="select-wrap">
+                <select id="pace-select">
+                  <option value="320">慢速 · 320ms</option>
+                  <option value="220" selected>标准 · 220ms</option>
+                  <option value="140">轻快 · 140ms</option>
+                  <option value="100">急促 · 100ms</option>
+                </select><svg><use href="#i-chevron"/></svg>
+              </div>
+            </div>
+            <div class="field">
+              <div class="label-row"><label for="fps-select">帧率</label></div>
+              <div class="select-wrap">
+                <select id="fps-select">
+                  <option value="8">8 FPS</option>
+                  <option value="10" selected>10 FPS</option>
+                  <option value="12">12 FPS</option>
+                  <option value="15">15 FPS</option>
+                </select><svg><use href="#i-chevron"/></svg>
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="label-row"><label>画质</label><span>颜色越多，文件越大</span></div>
+            <div class="quality-row" id="quality-options">
+              <button type="button" data-value="high" class="active"><span class="quality-dot q-high"></span>高清<small>256 色</small></button>
+              <button type="button" data-value="medium"><span class="quality-dot q-mid"></span>均衡<small>128 色</small></button>
+              <button type="button" data-value="low"><span class="quality-dot q-low"></span>轻量<small>64 色</small></button>
+            </div>
+          </div>
+
+          <label class="limit-row" for="limit-toggle">
+            <span><strong>限制文件体积</strong><small>自动降色彩和尺寸，优先小于目标值</small></span>
+            <span class="switch"><input id="limit-toggle" type="checkbox" checked><i></i></span>
+          </label>
+          <div class="limit-input" id="limit-input">
+            <span>不超过</span><input id="max-size" type="number" min="0.2" max="8" step="0.1" value="1"><span>MB</span>
+          </div>
+
+          <div class="notice error" id="export-error" role="alert" hidden></div>
+          <button class="compose-btn" id="compose-button" type="button" disabled>
+            <svg><use href="#i-play"/></svg><span>合成 GIF</span><small>FFMPEG 本地渲染</small>
+          </button>
+        </div>
+
+        <div class="export-actions" id="export-actions" hidden>
+          <a class="download-btn" id="download-gif" href="#" download><svg><use href="#i-download"/></svg><span><strong>下载 GIF</strong><small id="download-meta">等待合成</small></span></a>
+          <a class="icon-action" id="download-frames" href="#" download title="下载全部分镜 PNG"><svg><use href="#i-package"/></svg><span>分镜 ZIP</span></a>
+        </div>
+
+        <button class="wechat-guide" id="wechat-button" type="button">
+          <span class="wechat-icon"><svg><use href="#i-wechat"/></svg></span>
+          <span><strong>发送到微信表情</strong><small>查看手机端导入步骤</small></span>
+          <svg><use href="#i-arrow"/></svg>
+        </button>
+      </aside>
+    </div>
+
+    <section class="process-strip" aria-label="工作流程">
+      <div><span>01</span><strong>参考角色</strong><p>保持同一张脸和同一种画风</p></div>
+      <i><svg><use href="#i-arrow"/></svg></i>
+      <div><span>02</span><strong>生成分镜</strong><p>按起承转合拆分情绪节奏</p></div>
+      <i><svg><use href="#i-arrow"/></svg></i>
+      <div><span>03</span><strong>合成循环</strong><p>调色板 GIF，颜色不脏、边缘干净</p></div>
+      <i><svg><use href="#i-arrow"/></svg></i>
+      <div><span>04</span><strong>存进微信</strong><p>保存相册，添加为自定义表情</p></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <span>GIFMOJI / BUILT FOR WORKBUDDY</span>
+    <span>HY IMAGE 3.5 PREVIEW × FFMPEG</span>
+  </footer>
+
+  <div class="modal" id="help-modal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="help-title">
+      <button class="modal-close" type="button" data-close aria-label="关闭"><svg><use href="#i-x"/></svg></button>
+      <span class="modal-kicker">QUICK GUIDE</span>
+      <h2 id="help-title">三步做出一个表情</h2>
+      <ol class="guide-list">
+        <li><span>01</span><div><strong>给角色和反应</strong><p>参考图不是必须的，但上传同一角色正脸照能明显提高一致性。提示词写清“先怎样、再怎样、最后怎样”。</p></div></li>
+        <li><span>02</span><div><strong>检查每一帧</strong><p>生成完成后拖动排序或删掉崩坏的帧。少于两帧不能合成 GIF，建议保留 4–8 帧。</p></div></li>
+        <li><span>03</span><div><strong>选择微信规格</strong><p>240px / 10 FPS / 1 MB 是适合聊天场景的起点。若超限，应用会自动降低色彩与尺寸。</p></div></li>
+      </ol>
+      <div class="modal-tip"><svg><use href="#i-info"/></svg><p>微信不同版本对自定义表情的体积与格式支持略有差异。建议下载 GIF 后先在手机相册确认可播放，再从微信表情面板添加。</p></div>
+    </div>
+  </div>
+
+  <div class="modal" id="wechat-modal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="wechat-title">
+      <button class="modal-close" type="button" data-close aria-label="关闭"><svg><use href="#i-x"/></svg></button>
+      <span class="modal-kicker">WECHAT STICKER</span>
+      <h2 id="wechat-title">放进微信表情</h2>
+      <div class="phone-steps">
+        <div><span>1</span><p><strong>下载 GIF</strong>把合成好的动图保存到手机；电脑端可先发给自己。</p></div>
+        <div><span>2</span><p><strong>存入相册</strong>在手机相册中打开，确认它会循环播放。</p></div>
+        <div><span>3</span><p><strong>添加表情</strong>微信聊天框点笑脸 → 心形表情面板 → 添加 → 从相册选择。</p></div>
+      </div>
+      <p class="wechat-note">如果微信提示文件过大，回到工坊选择 <strong>240px + 均衡 + 1 MB</strong> 后重新合成。</p>
+      <a class="modal-primary" id="wechat-download" href="#" download><svg><use href="#i-download"/></svg> 先下载 GIF</a>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
