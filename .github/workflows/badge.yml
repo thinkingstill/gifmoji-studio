@@ -29,49 +29,55 @@ jobs:
 
       - name: 生成徽章
         env:
-          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion || 'unknown' }}
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number || 0 }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          case "${CONCLUSION:-unknown}" in
+          case "$CONCLUSION" in
             success) color="#2ea44f"; label="passing" ;;
             failure) color="#cf222e"; label="failing" ;;
             cancelled) color="#9a6700"; label="cancelled" ;;
             *) color="#6e7781"; label="unknown" ;;
           esac
           mkdir -p .ci-status
+          # 必须先删除旧文件：否则未跟踪的同名文件会让 git diff 认为"无变化"而跳过提交
+          rm -f .ci-status/badge.svg .ci-status/status.json
           cat > .ci-status/badge.svg <<SVG
-          <svg xmlns="http://www.w3.org/2000/svg" width="200" height="24" role="img" aria-label="CI ${label}">
-            <title>CI ${label}</title>
+          <svg xmlns="http://www.w3.org/2000/svg" width="200" height="24" role="img" aria-label="CI $label">
+            <title>CI $label</title>
             <g font-family="Verdana,DejaVu Sans,sans-serif" font-size="11" text-anchor="middle">
               <rect width="92" height="24" fill="#555"/>
-              <rect x="92" width="108" height="24" fill="${color}"/>
+              <rect x="92" width="108" height="24" fill="$color"/>
               <text x="46" y="16" fill="#fff">build</text>
-              <text x="146" y="16" fill="#fff">${label}</text>
+              <text x="146" y="16" fill="#fff">$label</text>
             </g>
           </svg>
           SVG
           cat > .ci-status/status.json <<JSON
           {
-            "conclusion": "${CONCLUSION:-unknown}",
-            "runNumber": ${RUN_NUMBER:-0},
-            "runUrl": "${RUN_URL}",
-            "commit": "${HEAD_SHA}",
+            "conclusion": "$CONCLUSION",
+            "runNumber": $RUN_NUMBER,
+            "runUrl": "$RUN_URL",
+            "commit": "$HEAD_SHA",
             "updatedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           JSON
 
       - name: 提交徽章
+        env:
+          CONCLUSION: ${{ github.event.workflow_run.conclusion || 'unknown' }}
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number || 0 }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- .ci-status; then
+          # 用 git status 判断（能识别未跟踪的新文件），而不是 git diff
+          if [ -z "$(git status --porcelain -- .ci-status)" ]; then
             echo "状态未变化，跳过提交。"
             exit 0
           fi
-          git add .ci-status
-          git commit -m "chore(badge): CI ${CONCLUSION:-unknown} (run ${RUN_NUMBER:-0})"
+          git add --force .ci-status
+          git commit -m "chore(badge): CI $CONCLUSION (run $RUN_NUMBER)"
           git push
