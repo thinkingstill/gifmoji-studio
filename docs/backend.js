@@ -32,6 +32,19 @@ function useCustom() {
   return Boolean(state.base);
 }
 
+/**
+ * 把接口路径拼到后端地址上，并保留地址自带的查询串。
+ * 例如 https://host/?token=abc + /api/health → https://host/api/health?token=abc
+ */
+function join(path) {
+  const queryAt = state.base.indexOf('?');
+  if (queryAt === -1) return `${state.base.replace(/\/+$/, '')}${path}`;
+  const head = state.base.slice(0, queryAt).replace(/\/+$/, '');
+  const query = state.base.slice(queryAt + 1);
+  // 路径本身已带查询串（如图片缓存戳）时用 & 续接，避免出现两个 ?
+  return `${head}${path}${path.includes('?') ? '&' : '?'}${query}`;
+}
+
 function load() {
   try {
     state.base = normalize(localStorage.getItem(STORAGE_KEY) || '');
@@ -69,7 +82,7 @@ export function isHosted() {
 /** 把 /api/... 之类的相对路径解析成真正要请求的地址 */
 export function resolve(path) {
   if (!path.startsWith('/api/')) return path;
-  return useCustom() ? `${state.base}${path}` : path;
+  return useCustom() ? join(path) : path;
 }
 
 /** 后端返回的绝对/相对路径（如图片 url、下载链接）补全前缀 */
@@ -77,7 +90,7 @@ export function resolveAsset(url) {
   if (!url) return url;
   if (/^(https?:|blob:|data:)/i.test(url)) return url;
   if (!url.startsWith('/api/')) return url;
-  return useCustom() ? `${state.base}${url}` : url;
+  return useCustom() ? join(url) : url;
 }
 
 /**
@@ -85,7 +98,11 @@ export function resolveAsset(url) {
  * 返回 { ok, managedKey, model, reason }
  */
 export async function probe(base) {
-  const target = `${normalize(base)}/api/health`;
+  const clean = normalize(base);
+  const queryAt = clean.indexOf('?');
+  const target = queryAt === -1
+    ? `${clean.replace(/\/+$/, '')}/api/health`
+    : `${clean.slice(0, queryAt).replace(/\/+$/, '')}/api/health${clean.slice(queryAt)}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
