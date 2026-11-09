@@ -76,6 +76,22 @@ npm start     # 本地启动
 
 CI 只做校验与测试，**不包含部署步骤**：本项目在 WorkBuddy 上的托管产物与访问地址不会进入代码库。
 
+### 公共访问入口
+
+GitHub Actions 本身只提供结果页面，**不提供可编程访问的运行入口**。需要对外展示的状态，用下面两种公开地址：
+
+| 用途 | 地址 |
+|---|---|
+| 全部运行记录 | `https://github.com/thinkingstill/gifmoji-studio/actions` |
+| 该工作流历史 | `https://github.com/thinkingstill/gifmoji-studio/actions/workflows/ci.yml` |
+| 官方状态徽章（SVG） | `https://github.com/thinkingstill/gifmoji-studio/actions/workflows/ci.yml/badge.svg` |
+| 自定义状态徽章 | `https://raw.githubusercontent.com/thinkingstill/gifmoji-studio/main/.ci-status/badge.svg` |
+| 机器可读状态 | `https://raw.githubusercontent.com/thinkingstill/gifmoji-studio/main/.ci-status/status.json` |
+
+后两项由 `.github/workflows/badge.yml` 在每次 CI 结束后写入，字段包括 `conclusion`、`runNumber`、`runUrl`、`commit`、`updatedAt`。
+
+**限制**：仓库为 Public，上述页面无需登录即可查看，但 CI 日志同样公开；Actions 运行记录目前只保留约 90 天。
+
 ## 自定义接口安全
 
 服务端会代理自定义模型地址，因此启用了以下限制：
