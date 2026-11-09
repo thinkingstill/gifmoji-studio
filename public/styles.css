@@ -332,6 +332,15 @@ textarea:focus { outline: 0; border-color: var(--ink); box-shadow: 0 0 0 3px rgb
 .key-content strong { color: var(--ink); font-family: var(--mono); font-weight: 600; }
 .remember { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 8.5px !important; font-weight: 500 !important; }
 .remember input { accent-color: var(--ink); }
+
+/* 服务连接 */
+#service-box { border-bottom: 0; }
+.service-copy { margin: 2px 0 10px !important; }
+.service-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.service-row .provider-preset { flex: 0 0 auto; padding: 7px 12px; }
+.service-help { margin: 6px 0 0 !important; }
+.service-help code { font: 8.5px var(--mono); padding: 1px 4px; border-radius: 4px; background: #ece6d8; color: #5a5648; }
+.key-state.warn { color: var(--danger); }
 .notice { margin: 12px 20px 0; padding: 9px 11px; border-radius: 8px; font-size: 10px; line-height: 1.5; }
 .notice.error { background: #fff0eb; color: #96331f; border: 1px solid #f1b5a7; }
 .primary-btn {

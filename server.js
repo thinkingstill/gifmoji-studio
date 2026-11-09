@@ -34,13 +34,43 @@ const rateBuckets = new Map();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: false, limit: '1mb' }));
+const CORS_ORIGIN = String(process.env.CORS_ORIGIN || '').trim();
+
+app.use((req, res, next) => {
+  // 前端可能托管在 GitHub Pages 等静态站点上，需要跨域调用本服务。
+  // CORS_ORIGIN 可设为逗号分隔的白名单；留空表示允许任意来源（接口本身不依赖 Cookie）。
+  const origin = req.headers.origin;
+  if (origin) {
+    const allowed = CORS_ORIGIN
+      ? CORS_ORIGIN.split(',').map((item) => item.trim()).filter(Boolean).includes(origin)
+      : true;
+    if (allowed) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Access-Control-Max-Age', '600');
+    }
+  }
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
+
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'self'"
+    "default-src 'self'; "
+      + "img-src 'self' data: blob: https:; "
+      + "style-src 'self' 'unsafe-inline'; script-src 'self'; "
+      // 允许前端把请求发往任意 HTTPS 后端（静态托管时需填写自定义服务地址）
+      + "connect-src 'self' https: http://localhost:* http://127.0.0.1:*; "
+      + "font-src 'self'; frame-ancestors 'self'"
   );
   next();
 });

@@ -54,6 +54,39 @@ TOKENHUB_API_KEY=你的密钥 npm start
 | `FFMPEG_PATH` | FFmpeg 可执行文件路径 | `ffmpeg` |
 | `DATA_DIR` | 分镜和 GIF 临时目录 | 系统临时目录 |
 
+## 两种部署形态
+
+同一套前端（`public/`）支持两种运行方式，业务逻辑完全一致，只有「后端地址」来源不同：
+
+| 形态 | 页面来源 | 生图与 FFmpeg 合成 |
+|---|---|---|
+| **本地 / 容器部署** | `server.js` 托管 `public/` | 直接调用同源 `/api`，开箱即用，无需填写地址 |
+| **GitHub Pages（静态）** | `docs/` 目录（本仓库已含完整可运行前端） | 需自行部署 `server.js`，在页面「服务连接」里填写后端地址 |
+
+静态托管时页面先探测同源，探测不到再读取用户在「服务连接」中填写的地址；自定义地址存入 `localStorage`，下次打开自动重试。后端未连接时：
+
+- 点「开始生成分镜」→ 提示先连接后端，不发起无效请求；
+- 点「合成 GIF」→ 按钮副标题显示「需先连接后端服务」，点击给出明确说明；
+- 「服务连接」状态显示 `未连接` / `已连接 · 同源` / `已连接 · 自定义` / `连接失败`。
+
+后端已开放跨域（`Access-Control-Allow-Origin`），支持静态站点直连。生产环境建议用 `CORS_ORIGIN` 白名单限制来源：
+
+```bash
+CORS_ORIGIN=https://thinkingstill.github.io npm start
+```
+
+### 同步两份前端
+
+`docs/` 是 GitHub Pages 用的副本，只允许两处差异：`index.html` 里的 `data-env="static"` 与相对路径。改动 `public/` 后执行：
+
+```bash
+cp public/index.html public/app.js public/backend.js public/styles.css docs/
+# 然后把 docs/index.html 里的 /app.js、/styles.css、/backend.js 改成 ./ 前缀，
+# 并在 <html> 上加 data-env="static"
+```
+
+`npm test` 会校验两份 `app.js` 是否一致，不一致直接失败。
+
 ## 开发与测试
 
 ```bash

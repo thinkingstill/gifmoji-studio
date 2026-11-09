@@ -1,3 +1,5 @@
+import * as api from './backend.js';
+
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
@@ -22,6 +24,7 @@ const state = {
 };
 
 const els = {
+  hostBadge: $('#host-badge'),
   referenceInput: $('#reference-input'),
   dropzone: $('#dropzone'),
   referencePreview: $('#reference-preview'),
@@ -46,6 +49,13 @@ const els = {
   modelInput: $('#model-input'),
   protocolSelect: $('#protocol-select'),
   configHelp: $('#config-help'),
+  serviceBox: $('#service-box'),
+  serviceState: $('#service-state'),
+  serviceCopy: $('#service-copy'),
+  serviceHelp: $('#service-help'),
+  backendUrl: $('#backend-url'),
+  testBackend: $('#test-backend'),
+  clearBackend: $('#clear-backend'),
   resetModel: $('#reset-model'),
   stageEmpty: $('#stage-empty'),
   stageProgress: $('#stage-progress'),
@@ -99,7 +109,7 @@ function humanSize(bytes) {
 }
 
 async function request(url, options = {}) {
-  const response = await fetch(url, options);
+  const response = await fetch(api.resolve(url), options);
   const contentType = response.headers.get('content-type') || '';
   const data = contentType.includes('application/json') ? await response.json() : {};
   if (!response.ok) {
@@ -109,6 +119,14 @@ async function request(url, options = {}) {
     throw error;
   }
   return data;
+}
+
+/** 后端未就绪时统一给出可操作提示，避免用户看到裸的请求失败 */
+function requireBackend() {
+  if (api.isReady()) return;
+  const error = new Error('尚未连接后端服务。请在「服务连接」中填写后端地址，生图与 GIF 合成都需要它。');
+  error.code = 'no_backend';
+  throw error;
 }
 
 function getApiKey() {
@@ -358,13 +376,17 @@ function resetGif() {
   els.gifSize.hidden = true;
   els.exportActions.hidden = true;
   els.downloadGif.href = '#';
-  els.downloadFrames.href = state.sessionId ? `/api/download/${state.sessionId}/frames.zip` : '#';
+  els.downloadFrames.href = state.sessionId ? api.resolveAsset(`/api/download/${state.sessionId}/frames.zip`) : '#';
   $('#wechat-download').href = '#';
   updateComposeState();
 }
 
 function updateComposeState() {
+  // 后端未连接时仍然允许点击，由 composeGif 给出"请先连接服务"的提示，避免按钮无响应
   els.compose.disabled = state.composing || state.frames.length < 2;
+  if (state.frames.length < 2) return;
+  const needsBackend = !api.isReady();
+  els.compose.querySelector('small').textContent = needsBackend ? '需先连接后端服务' : 'FFMPEG 本地渲染';
 }
 
 function applySession(session) {
@@ -373,7 +395,7 @@ function applySession(session) {
   state.frames = session.frames || [];
   state.sessionId = session.id;
   renderFrames();
-  els.downloadFrames.href = `/api/download/${session.id}/frames.zip`;
+  els.downloadFrames.href = api.resolveAsset(`/api/download/${session.id}/frames.zip`);
 }
 
 function renderFrames() {
@@ -391,7 +413,7 @@ function renderFrames() {
     card.setAttribute('aria-label', `第 ${index + 1} 帧，${frame.caption || '分镜'}`);
 
     const image = document.createElement('img');
-    image.src = frame.url;
+    image.src = api.resolveAsset(frame.url);
     image.alt = `分镜 ${index + 1}：${frame.caption || '角色动作'}`;
     image.loading = index > 2 ? 'lazy' : 'eager';
     card.appendChild(image);
@@ -450,7 +472,7 @@ function renderFrames() {
   });
 
   if (state.sessionId) {
-    els.downloadFrames.href = `/api/download/${state.sessionId}/frames.zip`;
+    els.downloadFrames.href = api.resolveAsset(`/api/download/${state.sessionId}/frames.zip`);
   }
   updateComposeState();
 }
@@ -515,6 +537,13 @@ async function pollJob(jobId) {
 
 async function startGeneration() {
   clearError(els.createError);
+  if (!api.isReady()) {
+    const message = '尚未连接后端服务，无法调用生图模型。请在「服务连接」中填写后端地址。';
+    showError(els.createError, message);
+    els.serviceBox.open = true;
+    toast(message, 'error');
+    return;
+  }
   const prompt = els.prompt.value.trim();
   if (prompt.length < 2) {
     showError(els.createError, '先描述一下它现在是什么反应。');
@@ -557,6 +586,15 @@ async function startGeneration() {
   renderFrames();
   setGenerating(true);
   showProgress({ progress: 2, current: 0, total: state.frameCount, message: `正在提交到 ${currentModel()}…` });
+
+  if (!api.isReady()) {
+    setGenerating(false);
+    hideProgress();
+    const message = '尚未连接后端服务，无法调用生图模型。请在「服务连接」中填写后端地址。';
+    showError(els.createError, message);
+    toast(message, 'error');
+    return;
+  }
 
   const form = new FormData();
   if (state.referenceFile) form.append('reference', state.referenceFile);
@@ -656,6 +694,10 @@ function setupOptions() {
 
 async function composeGif() {
   clearError(els.exportError);
+  if (!api.isReady()) {
+    showError(els.exportError, '尚未连接后端服务，无法调用 FFmpeg 合成。请在左侧「服务连接」中填写后端地址。');
+    return;
+  }
   if (state.frames.length < 2) {
     showError(els.exportError, '至少需要两帧才能合成动态 GIF。');
     return;
@@ -685,15 +727,15 @@ async function composeGif() {
     });
     state.gif = data.gif;
     els.gifPlaceholder.hidden = true;
-    els.gifImage.src = data.gif.url;
+    els.gifImage.src = api.resolveAsset(data.gif.url);
     els.gifImage.hidden = false;
     els.gifSize.textContent = `${data.gif.width}×${data.gif.height} · ${humanSize(data.gif.bytes)}`;
     els.gifSize.hidden = false;
     els.exportActions.hidden = false;
-    els.downloadGif.href = data.gif.downloadUrl;
+    els.downloadGif.href = api.resolveAsset(data.gif.downloadUrl);
     els.downloadMeta.textContent = `${humanSize(data.gif.bytes)} · ${data.gif.pages || state.frames.length} 帧`;
-    els.downloadFrames.href = `/api/download/${state.sessionId}/frames.zip`;
-    $('#wechat-download').href = data.gif.downloadUrl;
+    els.downloadFrames.href = api.resolveAsset(`/api/download/${state.sessionId}/frames.zip`);
+    $('#wechat-download').href = api.resolveAsset(data.gif.downloadUrl);
     if (data.gif.underLimit === false) {
       showError(els.exportError, '已尝试压缩，但仍略高于目标体积。可改用 240px 或轻量画质。');
     } else {
@@ -705,7 +747,6 @@ async function composeGif() {
   } finally {
     state.composing = false;
     els.compose.querySelector('span').textContent = '合成 GIF';
-    els.compose.querySelector('small').textContent = 'FFMPEG 本地渲染';
     updateComposeState();
   }
 }
@@ -744,7 +785,79 @@ function setupModals() {
   });
 }
 
+function paintServiceState(result) {
+  const { mode } = result;
+  els.backendUrl.value = result.base || '';
+  let label = '未连接';
+  let copy = '生图与 FFmpeg 合成由后端服务完成。本地部署时页面直接调用同源后端，无需填写。';
+  if (mode === 'same-origin') {
+    label = '已连接 · 同源';
+  } else if (mode === 'custom') {
+    label = '已连接 · 自定义';
+    copy = `已连接到 ${result.base}，生图与合成都会转发到该服务。`;
+  } else if (mode === 'broken') {
+    label = '连接失败';
+    copy = `无法连接 ${result.base}：${result.custom?.reason || '未知错误'}。可以修改地址后重新测试。`;
+  } else if (result.hosted) {
+    copy = '当前页面托管在静态站点上，没有自带后端。请先部署 server.js，再把服务地址填到下面。';
+  }
+  els.serviceState.textContent = label;
+  els.serviceState.classList.toggle('ready', mode === 'same-origin' || mode === 'custom');
+  els.serviceState.classList.toggle('warn', mode === 'broken' || (mode === 'unset' && result.hosted));
+  els.serviceCopy.textContent = copy;
+  els.serviceHelp.hidden = mode === 'same-origin' && !result.hosted;
+}
+
+function setupService() {
+  const apply = async (value) => {
+    api.setBackend(value);
+    els.serviceState.textContent = '检测中…';
+    const result = await api.refresh();
+    paintServiceState(result);
+    if (result.mode === 'custom' || result.mode === 'same-origin') {
+      toast(api.isReady() ? '后端已连接' : '连接失败', api.isReady() ? '' : 'error');
+      if (api.isReady()) loadConfig();
+    } else {
+      toast(`连接失败：${result.custom?.reason || '未填写地址'}`, 'error');
+    }
+  };
+
+  els.testBackend.addEventListener('click', () => {
+    const value = els.backendUrl.value.trim();
+    if (value && !/^https?:\/\//i.test(value)) {
+      toast('后端地址需要以 http:// 或 https:// 开头', 'error');
+      return;
+    }
+    apply(value);
+  });
+
+  els.clearBackend.addEventListener('click', () => {
+    els.backendUrl.value = '';
+    apply('');
+  });
+
+  els.backendUrl.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      els.testBackend.click();
+    }
+  });
+}
+
+async function bootstrap() {
+  // docs/ 版通过 <html data-env="static"> 声明自己是静态托管，跳过同源探测
+  const result = await api.init();
+  paintServiceState(result);
+  if (api.isReady()) await loadConfig();
+  else updateKeyState();
+}
+
 function init() {
+  // 静态托管（docs/ 版）时页头标识改为 GITHUB PAGES
+  if (els.hostBadge && document.documentElement.dataset.env === 'static') {
+    els.hostBadge.lastChild.textContent = ' GITHUB PAGES';
+  }
+  setupService();
   setupUpload();
   setupPrompt();
   setupFrameCount();
@@ -754,9 +867,9 @@ function init() {
   setupOptions();
   setupCompose();
   setupModals();
-  loadConfig();
   renderFrames();
   resetGif();
+  bootstrap();
 }
 
 init();

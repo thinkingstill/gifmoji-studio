@@ -73,10 +73,29 @@ try {
     const page = await fetch(`${ORIGIN}/`);
     assert.equal(page.status, 200);
     assert.match(await page.text(), /gifmoji/i);
-    for (const asset of ['/app.js', '/styles.css']) {
+    for (const asset of ['/app.js', '/backend.js', '/styles.css']) {
       const res = await fetch(`${ORIGIN}${asset}`);
       assert.equal(res.status, 200, `${asset} 应可访问`);
     }
+  });
+
+  await check('跨域预检通过（供 GitHub Pages 等静态站点调用）', async () => {
+    const res = await fetch(`${ORIGIN}/api/compose`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'https://thinkingstill.github.io',
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'content-type'
+      }
+    });
+    assert.equal(res.status, 204);
+    assert.equal(res.headers.get('access-control-allow-origin'), 'https://thinkingstill.github.io');
+    assert.match(res.headers.get('access-control-allow-methods') || '', /POST/);
+
+    const health = await fetch(`${ORIGIN}/api/health`, {
+      headers: { Origin: 'https://thinkingstill.github.io' }
+    });
+    assert.equal(health.headers.get('access-control-allow-origin'), 'https://thinkingstill.github.io');
   });
 
   await check('缺少 API Key 时生成接口返回明确错误而不是崩溃', async () => {
@@ -155,6 +174,22 @@ try {
     }
     const pngs = new Set(names.filter((name) => name.endsWith('.png')));
     assert.equal(pngs.size, 4, `ZIP 内应包含 4 张分镜，实际 ${pngs.size}：${names.join(' | ')}`);
+  });
+
+  await check('静态托管版（docs/）结构与本地版一致', async () => {
+    const root = path.resolve(import.meta.dirname, '..');
+    const docsHtml = await fs.readFile(path.join(root, 'docs', 'index.html'), 'utf8');
+    const publicHtml = await fs.readFile(path.join(root, 'public', 'index.html'), 'utf8');
+    // Pages 版必须声明静态环境并使用相对路径
+    assert.match(docsHtml, /data-env="static"/);
+    assert.match(docsHtml, /src="\.\/app\.js"/);
+    assert.match(publicHtml, /src="\/app\.js"/);
+    // 两边业务逻辑必须同源（只允许路径与标识差异）
+    const [docsApp, publicApp] = await Promise.all([
+      fs.readFile(path.join(root, 'docs', 'app.js'), 'utf8'),
+      fs.readFile(path.join(root, 'public', 'app.js'), 'utf8')
+    ]);
+    assert.equal(docsApp, publicApp, 'docs/app.js 与 public/app.js 必须保持一致，请同步后再提交');
   });
 
   await check('未知接口返回 JSON 404', async () => {
