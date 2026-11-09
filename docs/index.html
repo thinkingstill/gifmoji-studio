@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GIFMOJI · 用一句话做出微信 GIF 表情</title>
+<meta name="description" content="上传一张参考图，用一句提示词生成情绪分镜，再由 FFmpeg 合成微信可直接导入的循环 GIF。">
+<meta name="theme-color" content="#f2eee4">
+<meta property="og:title" content="GIFMOJI · 表情动画工坊">
+<meta property="og:description" content="参考图 + 一句提示词 → 连贯分镜 → FFmpeg 合成可导入微信的 GIF。">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="./style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2320221c'/%3E%3Ctext x='32' y='42' font-family='monospace' font-size='24' font-weight='700' fill='%23d9ff56' text-anchor='middle'%3EG!F%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="top">
+  <a class="brand" href="./">
+    <span class="mark">G<span>!</span>F</span>
+    <span class="word">GIFMOJI<small>表情动画工坊</small></span>
+  </a>
+  <nav class="nav">
+    <a href="#how">工作方式</a>
+    <a href="#features">能力</a>
+    <a href="#start">本地运行</a>
+    <a class="ghost" href="https://github.com/thinkingstill/gifmoji-studio">GitHub</a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="eyebrow">
+      <span class="dot"></span> Node.js · FFmpeg · 混元图像
+    </div>
+    <h1>一句提示词，<br>做一套<em>会循环</em>的表情。</h1>
+    <p class="lede">
+      上传一张参考图锁定角色和画风，写一句情绪描述，服务端生成 2–8 帧连贯分镜，
+      再用 FFmpeg 的两步调色板流程合成 GIF —— 尺寸、帧率、体积都能压到微信吃得下。
+    </p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/thinkingstill/gifmoji-studio">
+        查看源码
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg>
+      </a>
+      <a class="btn" href="#how">它是怎么跑的</a>
+    </div>
+
+    <div class="badges">
+      <a href="https://github.com/thinkingstill/gifmoji-studio/actions/workflows/ci.yml">
+        <img src="https://github.com/thinkingstill/gifmoji-studio/actions/workflows/ci.yml/badge.svg" alt="CI 状态" height="20">
+      </a>
+      <span class="chip">Node 20 / 22</span>
+      <span class="chip">0 依赖漏洞</span>
+      <span class="chip">8 项冒烟断言</span>
+    </div>
+  </section>
+
+  <section class="stage" aria-label="流程示意">
+    <div class="frame">
+      <div class="frame-head">
+        <span class="mono">reference.png</span>
+        <span class="tag">输入</span>
+      </div>
+      <div class="ref-art">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle cx="60" cy="52" r="30" fill="none" stroke="currentColor" stroke-width="2.4"/>
+          <circle cx="50" cy="48" r="3.4" fill="currentColor"/>
+          <circle cx="70" cy="48" r="3.4" fill="currentColor"/>
+          <path d="M50 64c4 5 16 5 20 0" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          <path d="M32 96c6-9 16-13 28-13s22 4 28 13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <p class="cap">一个角色 · 统一画风</p>
+    </div>
+
+    <div class="arrow" aria-hidden="true">
+      <svg viewBox="0 0 40 12"><path d="M0 6h34m-6-5 6 5-6 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+
+    <div class="frames" aria-label="分镜序列">
+      <div class="cell"><span>起势</span></div>
+      <div class="cell"><span>反应</span></div>
+      <div class="cell hot"><span>爆发</span></div>
+      <div class="cell"><span>收束</span></div>
+    </div>
+
+    <div class="arrow" aria-hidden="true">
+      <svg viewBox="0 0 40 12"><path d="M0 6h34m-6-5 6 5-6 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+
+    <div class="frame out">
+      <div class="frame-head">
+        <span class="mono">emoji.gif</span>
+        <span class="tag ok">输出</span>
+      </div>
+      <div class="gif-art" aria-hidden="true">
+        <div class="orb"></div>
+      </div>
+      <p class="cap">320×320 · ≤1 MB</p>
+    </div>
+  </section>
+
+  <section id="how" class="block">
+    <h2>四步，从图到表情包</h2>
+    <ol class="steps">
+      <li>
+        <span class="num">01</span>
+        <h3>锁定角色</h3>
+        <p>参考图统一裁切到 1024×1024 并转 PNG，作为每一帧的视觉锚点，避免角色串味。</p>
+      </li>
+      <li>
+        <span class="num">02</span>
+        <h3>拆解情绪节拍</h3>
+        <p>按 起势→反应→增强→爆发→延展→转折→收束→回环 分配分镜阶段，4 帧也保证有高潮帧。</p>
+      </li>
+      <li>
+        <span class="num">03</span>
+        <h3>逐帧生成</h3>
+        <p>每帧请求都带上阶段描述和帧序号，异步任务 + 轮询进度，单帧失败可重试。</p>
+      </li>
+      <li>
+        <span class="num">04</span>
+        <h3>合成与压缩</h3>
+        <p>FFmpeg <code>palettegen</code> + <code>paletteuse</code> 两步编码避免偏色，超体积时自动降尺寸降色。</p>
+      </li>
+    </ol>
+  </section>
+
+  <section id="features" class="block">
+    <h2>能调的东西都给出来了</h2>
+    <div class="cards">
+      <article>
+        <h3>大小与画质</h3>
+        <p>240 / 320 / 480 / 640 px 正方形，帧率 4–20，单帧停留 80–1200 ms，调色板 256 / 128 / 64 色。</p>
+      </article>
+      <article>
+        <h3>体积上限</h3>
+        <p>设定目标体积后自动迭代压缩，并回报是否达标，不用反复试。</p>
+      </article>
+      <article>
+        <h3>分镜可编辑</h3>
+        <p>拖拽排序、删除崩坏帧、导入自己的图片继续合成，最多 8 帧。</p>
+      </article>
+      <article>
+        <h3>模型可替换</h3>
+        <p>内置混元 v3.5，另支持 OpenAI 图像、聊天式生图与自动识别；Base URL、模型、Key 都能填自己的。</p>
+      </article>
+      <article>
+        <h3>微信可导入</h3>
+        <p>导出 GIF 与全部分镜 ZIP，附微信自定义表情的导入路径。</p>
+      </article>
+      <article>
+        <h3>有防线</h3>
+        <p>自定义地址强制 HTTPS、拒绝内网与云元数据地址、不跟随重定向；平台密钥只发往官方域名。</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="block note">
+    <h2>关于这个页面</h2>
+    <p>
+      你现在看的是 <strong>GitHub Pages</strong> 托管的项目主页 —— 纯静态，只有 HTML 和 CSS。
+      它能展示项目，但跑不了这个应用：生图要连模型、合成要调 FFmpeg、分镜要落盘，这些都依赖 Node 后端进程。
+    </p>
+    <p>
+      想真正用起来，请按下面的方式在自己的机器或任意支持 Node 的容器里启动。应用本身也已经在别处部署了一份可体验的实例。
+    </p>
+    <div class="split">
+      <div class="panel">
+        <h4>Pages 能做</h4>
+        <ul>
+          <li>项目介绍与用法文档</li>
+          <li>CI 状态徽章</li>
+          <li>截图、演示素材</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h4>Pages 做不了</h4>
+        <ul>
+          <li>调用生图模型</li>
+          <li>执行 FFmpeg 合成</li>
+          <li>保存分镜与导出文件</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="start" class="block">
+    <h2>本地跑起来</h2>
+    <pre class="code"><code><span class="c"># 克隆并安装</span>
+git clone https://github.com/thinkingstill/gifmoji-studio.git
+cd gifmoji-studio
+npm install
+
+<span class="c"># 需要 FFmpeg</span>
+ffmpeg -version
+
+<span class="c"># 启动（可注入服务端密钥，也可以留空让使用者自填）</span>
+TOKENHUB_API_KEY=你的密钥 npm start
+<span class="c"># → http://localhost:3000</span></code></pre>
+    <p class="fine">
+      冒烟测试不需要任何密钥：<code>npm test</code> 会自己拉起一个只监听 127.0.0.1 的实例，
+      走完「上传分镜 → FFmpeg 合成 → 下载校验」。
+    </p>
+  </section>
+</main>
+
+<footer class="foot">
+  <div>
+    <strong>GIFMOJI</strong>
+    <span>MIT · Node.js + FFmpeg</span>
+  </div>
+  <div class="links">
+    <a href="https://github.com/thinkingstill/gifmoji-studio">仓库</a>
+    <a href="https://github.com/thinkingstill/gifmoji-studio/actions">CI 运行记录</a>
+    <a href="https://github.com/thinkingstill/gifmoji-studio/issues">反馈</a>
+  </div>
+</footer>
+</body>
+</html>
