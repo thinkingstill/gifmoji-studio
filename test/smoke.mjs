@@ -184,12 +184,15 @@ try {
     assert.match(docsHtml, /data-env="static"/);
     assert.match(docsHtml, /src="\.\/app\.js"/);
     assert.match(publicHtml, /src="\/app\.js"/);
-    // 两边业务逻辑必须同源（只允许路径与标识差异）
-    const [docsApp, publicApp] = await Promise.all([
-      fs.readFile(path.join(root, 'docs', 'app.js'), 'utf8'),
-      fs.readFile(path.join(root, 'public', 'app.js'), 'utf8')
-    ]);
-    assert.equal(docsApp, publicApp, 'docs/app.js 与 public/app.js 必须保持一致，请同步后再提交');
+    assert.doesNotMatch(publicHtml, /data-env="static"/, 'public/ 版由服务端托管，不能声明静态环境');
+    // 两边业务逻辑必须同源（只允许路径与标识差异），用脚本同步后逐一比对
+    for (const name of ['app.js', 'backend.js', 'giflite.js', 'directgen.js', 'styles.css']) {
+      const [docsFile, publicFile] = await Promise.all([
+        fs.readFile(path.join(root, 'docs', name), 'utf8'),
+        fs.readFile(path.join(root, 'public', name), 'utf8')
+      ]);
+      assert.equal(docsFile, publicFile, `docs/${name} 与 public/${name} 必须一致，请运行 node scripts/sync-docs.mjs`);
+    }
   });
 
   await check('未知接口返回 JSON 404', async () => {

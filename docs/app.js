@@ -1,4 +1,6 @@
 import * as api from './backend.js';
+import { composeGif as composeLocalGif, zipImages } from './giflite.js';
+import { generateFrames as generateLocalFrames } from './directgen.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -20,7 +22,14 @@ const state = {
   generating: false,
   jobId: '',
   gif: null,
-  composing: false
+  composing: false,
+  /** 是否有可用后端：有则走 FFmpeg，没有则走浏览器本地合成 */
+  backendReady: false,
+  /** 本地模式生成的分镜（不经过服务端） */
+  localFrames: [],
+  /** 本地模式的内存下载地址 */
+  localGifUrl: '',
+  localZipUrl: ''
 };
 
 const els = {
@@ -56,6 +65,8 @@ const els = {
   backendUrl: $('#backend-url'),
   testBackend: $('#test-backend'),
   clearBackend: $('#clear-backend'),
+  composeEngine: $('#compose-engine'),
+  footerEngine: $('#footer-engine'),
   resetModel: $('#reset-model'),
   stageEmpty: $('#stage-empty'),
   stageProgress: $('#stage-progress'),
@@ -121,10 +132,39 @@ async function request(url, options = {}) {
   return data;
 }
 
+/** 读取图片原始尺寸，用于本地模式记录分镜信息 */
+function readImageSize(src) {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.onload = () => resolve({ width: image.naturalWidth || 1024, height: image.naturalHeight || 1024 });
+    image.onerror = () => resolve({ width: 1024, height: 1024 });
+    image.src = src;
+  });
+}
+
+/** 本地模式：把选中的文件转成可直接渲染的分镜 */
+async function filesToLocalFrames(files) {
+  const added = [];
+  for (const file of Array.from(files)) {
+    const url = URL.createObjectURL(file);
+    const size = await readImageSize(url);
+    added.push({
+      id: `local-${Math.random().toString(16).slice(2, 10)}`,
+      url,
+      objectUrl: true,
+      width: size.width,
+      height: size.height,
+      caption: '自定义分镜'
+    });
+  }
+  return added;
+}
+
 /** 后端未就绪时统一给出可操作提示，避免用户看到裸的请求失败 */
 function requireBackend() {
   if (api.isReady()) return;
-  const error = new Error('尚未连接后端服务。请在「服务连接」中填写后端地址，生图与 GIF 合成都需要它。');
+  const error = new Error('尚未连接后端服务。请在「服务连接」中填写后端地址；也可以直接导入图片，用浏览器本地合成本地合成 GIF。');
   error.code = 'no_backend';
   throw error;
 }
@@ -382,11 +422,10 @@ function resetGif() {
 }
 
 function updateComposeState() {
-  // 后端未连接时仍然允许点击，由 composeGif 给出"请先连接服务"的提示，避免按钮无响应
   els.compose.disabled = state.composing || state.frames.length < 2;
+  // 有后端走 FFmpeg（质量更好）；没有后端则在浏览器里合成，保证静态托管也能出图
+  paintEngine(api.isReady());
   if (state.frames.length < 2) return;
-  const needsBackend = !api.isReady();
-  els.compose.querySelector('small').textContent = needsBackend ? '需先连接后端服务' : 'FFMPEG 本地渲染';
 }
 
 function applySession(session) {
@@ -489,6 +528,15 @@ function reorderFrame(draggedId, targetId) {
 }
 
 async function deleteFrame(frameId) {
+  // 本地模式：直接从内存数组移除
+  if (!api.isReady()) {
+    const frame = state.frames.find((item) => item.id === frameId);
+    if (frame?.objectUrl) URL.revokeObjectURL(frame.url);
+    state.frames = state.frames.filter((item) => item.id !== frameId);
+    resetGif();
+    renderFrames();
+    return;
+  }
   if (!state.sessionId) return;
   try {
     const data = await request(`/api/frames/${state.sessionId}/${frameId}`, { method: 'DELETE' });
@@ -537,13 +585,6 @@ async function pollJob(jobId) {
 
 async function startGeneration() {
   clearError(els.createError);
-  if (!api.isReady()) {
-    const message = '尚未连接后端服务，无法调用生图模型。请在「服务连接」中填写后端地址。';
-    showError(els.createError, message);
-    els.serviceBox.open = true;
-    toast(message, 'error');
-    return;
-  }
   const prompt = els.prompt.value.trim();
   if (prompt.length < 2) {
     showError(els.createError, '先描述一下它现在是什么反应。');
@@ -587,12 +628,39 @@ async function startGeneration() {
   setGenerating(true);
   showProgress({ progress: 2, current: 0, total: state.frameCount, message: `正在提交到 ${currentModel()}…` });
 
+  // 无后端（静态托管）：浏览器直连模型接口，要求对方允许跨域
   if (!api.isReady()) {
-    setGenerating(false);
-    hideProgress();
-    const message = '尚未连接后端服务，无法调用生图模型。请在「服务连接」中填写后端地址。';
-    showError(els.createError, message);
-    toast(message, 'error');
+    try {
+      const frames = await generateLocalFrames({
+        baseUrl: els.baseUrl.value.trim(),
+        apiKey: getApiKey(),
+        model: currentModel(),
+        protocol: els.protocolSelect.value,
+        prompt,
+        style: els.style.value,
+        motion: els.motion.value,
+        frameCount: state.frameCount,
+        reference: state.referenceFile,
+        onProgress: (progress) => showProgress(progress)
+      });
+      state.frames = frames.map((frame, index) => ({
+        id: `local-${Date.now().toString(16)}-${index}`,
+        url: frame.url,
+        width: 1024,
+        height: 1024,
+        caption: frame.caption
+      }));
+      renderFrames();
+      setGenerating(false);
+      hideProgress();
+      toast(`分镜完成，共 ${state.frames.length} 帧（浏览器直连模式）`);
+    } catch (error) {
+      setGenerating(false);
+      hideProgress();
+      if (!state.frames.length) els.stageEmpty.hidden = false;
+      showError(els.createError, error.message);
+      toast(error.message, 'error');
+    }
     return;
   }
 
@@ -632,6 +700,26 @@ function setupGenerate() {
 
 async function importFrames(files) {
   if (!files?.length) return;
+
+  // 无后端：直接在浏览器里导入，仅用于本地合成
+  if (!api.isReady()) {
+    const room = 8 - state.frames.length;
+    if (room <= 0) {
+      showError(els.createError, '分镜台最多保留 8 帧，请先删除不需要的分镜。');
+      return;
+    }
+    const picked = Array.from(files).slice(0, room);
+    const added = await filesToLocalFrames(picked);
+    state.frames = [...state.frames, ...added];
+    resetGif();
+    renderFrames();
+    toast(`已导入 ${added.length} 张分镜（本地模式）`);
+    if (picked.length < files.length) {
+      showError(els.createError, `分镜台最多 8 帧，仅导入了前 ${picked.length} 张。`);
+    }
+    return;
+  }
+
   const form = new FormData();
   if (state.sessionId) form.append('sessionId', state.sessionId);
   Array.from(files).slice(0, 8).forEach((file) => form.append('frames', file));
@@ -656,6 +744,14 @@ function setupImport() {
     els.importInput.value = '';
   });
   $('#clear-frames').addEventListener('click', async () => {
+    if (!api.isReady()) {
+      state.frames.forEach((frame) => { if (frame.objectUrl) URL.revokeObjectURL(frame.url); });
+      state.frames = [];
+      resetGif();
+      renderFrames();
+      toast('分镜台已清空');
+      return;
+    }
     if (!state.sessionId || !state.frames.length) return;
     try {
       await Promise.all(state.frames.map((frame) => request(`/api/frames/${state.sessionId}/${frame.id}`, { method: 'DELETE' })));
@@ -692,12 +788,80 @@ function setupOptions() {
   $('#fps-select').addEventListener('change', resetGif);
 }
 
+/** 下载链接指向内存中的 Blob（本地模式） */
+function setBlobLinks(gifBlob, frameBlobs) {
+  if (state.localGifUrl) URL.revokeObjectURL(state.localGifUrl);
+  state.localGifUrl = URL.createObjectURL(gifBlob);
+  els.gifPlaceholder.hidden = true;
+  els.gifImage.src = state.localGifUrl;
+  els.gifImage.hidden = false;
+  els.downloadGif.href = state.localGifUrl;
+  els.downloadGif.setAttribute('download', `gifmoji-${Date.now()}.gif`);
+  $('#wechat-download').href = state.localGifUrl;
+  $('#wechat-download').setAttribute('download', `gifmoji-${Date.now()}.gif`);
+
+  // 分镜打包成 ZIP 也放到前端完成
+  if (frameBlobs && frameBlobs.length) {
+    zipImages(frameBlobs)
+      .then((zip) => {
+        if (state.localZipUrl) URL.revokeObjectURL(state.localZipUrl);
+        state.localZipUrl = URL.createObjectURL(zip);
+        els.downloadFrames.href = state.localZipUrl;
+        els.downloadFrames.setAttribute('download', `gifmoji-frames-${Date.now()}.zip`);
+      })
+      .catch(() => {
+        els.downloadFrames.href = '#';
+      });
+  }
+}
+
+async function composeLocally(options) {
+  const frames = state.frames;
+  const result = await composeLocalGif({
+    urls: frames.map((frame) => frame.url),
+    width: options.width,
+    fps: options.fps,
+    holdMs: options.holdMs,
+    quality: options.quality,
+    maxKb: options.maxKb || 0,
+    onProgress: (ratio) => {
+      els.exportError.hidden = true;
+      els.compose.querySelector('span').textContent = `本地合成 ${Math.round(ratio * 100)}%`;
+    }
+  });
+
+  const frameBlobs = [];
+  for (const [index, frame] of frames.entries()) {
+    try {
+      const blob = frame.objectUrl ? await (await fetch(frame.url)).blob() : await fetch(frame.url).then((res) => res.blob());
+      frameBlobs.push({ name: `${String(index + 1).padStart(2, '0')}-${frame.caption || '分镜'}.png`, blob });
+    } catch {
+      // 某张图取不回来就跳过，不阻断 GIF 导出
+    }
+  }
+
+  setBlobLinks(result.blob, frameBlobs);
+  state.gif = {
+    bytes: result.bytes,
+    width: result.width,
+    height: result.height,
+    pages: frames.length,
+    underLimit: result.underLimit,
+    local: true
+  };
+  els.gifSize.textContent = `${result.width}×${result.height} · ${humanSize(result.bytes)}`;
+  els.gifSize.hidden = false;
+  els.exportActions.hidden = false;
+  els.downloadMeta.textContent = `${humanSize(result.bytes)} · ${frames.length} 帧 · 浏览器合成`;
+  if (result.underLimit === false) {
+    showError(els.exportError, '已尝试压缩，但仍略高于目标体积。可改用 240px 或轻量画质。');
+  } else {
+    toast(`GIF 合成完成 · ${humanSize(result.bytes)}`);
+  }
+}
+
 async function composeGif() {
   clearError(els.exportError);
-  if (!api.isReady()) {
-    showError(els.exportError, '尚未连接后端服务，无法调用 FFmpeg 合成。请在左侧「服务连接」中填写后端地址。');
-    return;
-  }
   if (state.frames.length < 2) {
     showError(els.exportError, '至少需要两帧才能合成动态 GIF。');
     return;
@@ -709,14 +873,33 @@ async function composeGif() {
 
   const width = Number($('#size-options .active')?.dataset.value || 240);
   const quality = $('#quality-options .active')?.dataset.value || 'high';
+  const fps = Number($('#fps-select').value);
+  const holdMs = Number($('#pace-select').value);
+  const maxMb = els.limitToggle.checked ? Number(els.maxSize.value) : null;
+
+  // 无后端（静态托管）时走浏览器本地合成，避免整条链路依赖服务器
+  if (!api.isReady()) {
+    try {
+      await composeLocally({ width, quality, fps, holdMs, maxKb: maxMb ? maxMb * 1024 : 0 });
+    } catch (error) {
+      showError(els.exportError, error.message);
+      toast(error.message, 'error');
+    } finally {
+      state.composing = false;
+      els.compose.querySelector('span').textContent = '合成 GIF';
+      updateComposeState();
+    }
+    return;
+  }
+
   const body = {
     sessionId: state.sessionId,
     order: state.frames.map((frame) => frame.id),
     width,
     quality,
-    fps: Number($('#fps-select').value),
-    holdMs: Number($('#pace-select').value),
-    maxMb: els.limitToggle.checked ? Number(els.maxSize.value) : null
+    fps,
+    holdMs,
+    maxMb
   };
 
   try {
@@ -733,9 +916,12 @@ async function composeGif() {
     els.gifSize.hidden = false;
     els.exportActions.hidden = false;
     els.downloadGif.href = api.resolveAsset(data.gif.downloadUrl);
-    els.downloadMeta.textContent = `${humanSize(data.gif.bytes)} · ${data.gif.pages || state.frames.length} 帧`;
+    els.downloadGif.removeAttribute('download');
+    els.downloadMeta.textContent = `${humanSize(data.gif.bytes)} · ${data.gif.pages || state.frames.length} 帧 · FFmpeg`;
     els.downloadFrames.href = api.resolveAsset(`/api/download/${state.sessionId}/frames.zip`);
+    els.downloadFrames.removeAttribute('download');
     $('#wechat-download').href = api.resolveAsset(data.gif.downloadUrl);
+    $('#wechat-download').removeAttribute('download');
     if (data.gif.underLimit === false) {
       showError(els.exportError, '已尝试压缩，但仍略高于目标体积。可改用 240px 或轻量画质。');
     } else {
@@ -785,6 +971,13 @@ function setupModals() {
   });
 }
 
+function paintEngine(backendReady) {
+  // 合成引擎由「有没有后端」决定：有后端走 FFmpeg，没有就走浏览器本地编码（方案 C）
+  const engine = backendReady ? 'FFMPEG' : 'CANVAS';
+  if (els.composeEngine) els.composeEngine.textContent = backendReady ? 'FFMPEG 渲染' : '浏览器本地合成';
+  if (els.footerEngine) els.footerEngine.textContent = engine;
+}
+
 function paintServiceState(result) {
   const { mode } = result;
   els.backendUrl.value = result.base || '';
@@ -799,13 +992,14 @@ function paintServiceState(result) {
     label = '连接失败';
     copy = `无法连接 ${result.base}：${result.custom?.reason || '未知错误'}。可以修改地址后重新测试。`;
   } else if (result.hosted) {
-    copy = '当前页面托管在静态站点上，没有自带后端。请先部署 server.js，再把服务地址填到下面。';
+    copy = '当前页面托管在静态站点上，没有自带后端。不填地址也能用：生图由浏览器直连模型，GIF 由浏览器本地编码。填了后端地址则改走服务端 FFmpeg。';
   }
   els.serviceState.textContent = label;
   els.serviceState.classList.toggle('ready', mode === 'same-origin' || mode === 'custom');
   els.serviceState.classList.toggle('warn', mode === 'broken' || (mode === 'unset' && result.hosted));
   els.serviceCopy.textContent = copy;
   els.serviceHelp.hidden = mode === 'same-origin' && !result.hosted;
+  paintEngine(api.isReady());
 }
 
 function setupService() {
@@ -853,9 +1047,10 @@ async function bootstrap() {
 }
 
 function init() {
-  // 静态托管（docs/ 版）时页头标识改为 GITHUB PAGES
-  if (els.hostBadge && document.documentElement.dataset.env === 'static') {
-    els.hostBadge.lastChild.textContent = ' GITHUB PAGES';
+  // 页头标识按部署形态改写：静态托管（docs/ 版）说 GITHUB PAGES，有后端就说 LOCAL SERVER
+  if (els.hostBadge) {
+    const hosted = document.documentElement.dataset.env === 'static';
+    els.hostBadge.lastChild.textContent = hosted ? ' GITHUB PAGES' : ' LOCAL SERVER';
   }
   setupService();
   setupUpload();

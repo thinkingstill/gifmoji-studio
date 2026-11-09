@@ -9,7 +9,8 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node test/smoke.mjs",
-    "audit": "npm audit --omit=dev --audit-level=high"
+    "audit": "npm audit --omit=dev --audit-level=high",
+    "sync:docs": "node scripts/sync-docs.mjs"
   },
   "engines": {
     "node": ">=20"

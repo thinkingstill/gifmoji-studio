@@ -56,20 +56,33 @@ TOKENHUB_API_KEY=你的密钥 npm start
 
 ## 两种部署形态
 
-同一套前端（`public/`）支持两种运行方式，业务逻辑完全一致，只有「后端地址」来源不同：
+同一套前端支持两种运行方式，**按「有没有后端」自动切换引擎**，无需用户手动选择：
 
-| 形态 | 页面来源 | 生图与 FFmpeg 合成 |
+| 形态 | 页面来源 | 生图 | GIF 合成 | 页面标识 |
+|---|---|---|---|---|
+| **本地 / 后端托管**（本仓库 `npm start`、WorkBuddy 部署） | `server.js` 托管 `public/` | 服务端 `/api/generate` | **FFmpeg**（`palettegen` + `paletteuse`） | `LOCAL SERVER` · `已连接 · 同源` |
+| **GitHub Pages（纯静态）** | `docs/` 目录 | 浏览器直连模型接口 | **方案 C：浏览器 Canvas + 自研 GIF 编码** | `GITHUB PAGES` · `未连接` |
+
+判定依据只有一个：`api.isReady()`。有后端就用 FFmpeg，没有就用浏览器本地编码。合成按钮副标题与页脚会实时显示当前引擎（`FFMPEG 渲染` / `浏览器本地合成`，页脚 `FFMPEG` / `CANVAS`）。
+
+静态托管时仍然可以填「服务连接」里的后端地址，填了并连通就升级为 FFmpeg，不填也能完整出图。
+
+### 两种引擎的差异
+
+| | FFmpeg（后端） | 方案 C（浏览器） |
 |---|---|---|
-| **本地 / 容器部署** | `server.js` 托管 `public/` | 直接调用同源 `/api`，开箱即用，无需填写地址 |
-| **GitHub Pages（静态）** | `docs/` 目录（本仓库已含完整可运行前端） | 需自行部署 `server.js`，在页面「服务连接」里填写后端地址 |
+| 依赖 | 系统 FFmpeg ≥ 4.0 | 无，纯 JS |
+| 调色板 | 全局 `palettegen stats_mode=diff` + `paletteuse diff_mode=rectangle` | 中位切分（median-cut）+ Floyd–Steinberg 抖动 |
+| 缩放 | `scale` 双三次 | Canvas `drawImage` 重采样 |
+| 体积控制 | FFmpeg 多轮参数搜索 | 逐步降分辨率与色数，命中目标体积即停 |
+| 4 帧素材典型产物 | 240×240 / 约 16 KB / 7 帧 | 240×240 / 约 3 KB / 3 帧 |
+| 适用 | 正式出图、追求画质 | 零部署、免后端、隐私不出浏览器 |
 
-静态托管时页面先探测同源，探测不到再读取用户在「服务连接」中填写的地址；自定义地址存入 `localStorage`，下次打开自动重试。后端未连接时：
+> 关于为什么不用 ffmpeg.wasm：`@ffmpeg/core@0.12.10` 的 wasm 有 31 MB，且**不含** `palettegen` / `paletteuse` / `dither` / `filter_complex`，无法复刻当前画质，所以静态版走了自研编码器这条路线。
 
-- 点「开始生成分镜」→ 提示先连接后端，不发起无效请求；
-- 点「合成 GIF」→ 按钮副标题显示「需先连接后端服务」，点击给出明确说明；
-- 「服务连接」状态显示 `未连接` / `已连接 · 同源` / `已连接 · 自定义` / `连接失败`。
+### 跨域
 
-后端已开放跨域（`Access-Control-Allow-Origin`），支持静态站点直连。生产环境建议用 `CORS_ORIGIN` 白名单限制来源：
+后端已开放 CORS（`Access-Control-Allow-Origin`、`OPTIONS` 预检 204），静态站点可直接调用。生产环境建议用 `CORS_ORIGIN` 白名单限制来源：
 
 ```bash
 CORS_ORIGIN=https://thinkingstill.github.io npm start
@@ -77,15 +90,13 @@ CORS_ORIGIN=https://thinkingstill.github.io npm start
 
 ### 同步两份前端
 
-`docs/` 是 GitHub Pages 用的副本，只允许两处差异：`index.html` 里的 `data-env="static"` 与相对路径。改动 `public/` 后执行：
+`docs/` 是 GitHub Pages 用的副本，只允许两处差异：`index.html` 的 `data-env="static"` 与相对路径。改完 `public/` 后执行：
 
 ```bash
-cp public/index.html public/app.js public/backend.js public/styles.css docs/
-# 然后把 docs/index.html 里的 /app.js、/styles.css、/backend.js 改成 ./ 前缀，
-# 并在 <html> 上加 data-env="static"
+node scripts/sync-docs.mjs   # 自动复制 + 改写路径，并生成 .nojekyll
 ```
 
-`npm test` 会校验两份 `app.js` 是否一致，不一致直接失败。
+`npm test` 会逐文件比对 `docs/` 与 `public/` 的 `app.js`、`backend.js`、`giflite.js`、`directgen.js`、`styles.css`，不一致直接失败。
 
 ## 开发与测试
 

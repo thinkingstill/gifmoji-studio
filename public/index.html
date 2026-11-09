@@ -36,7 +36,7 @@
       <span class="brand-word">GIFMOJI<small>表情动画工坊</small></span>
     </a>
     <div class="header-meta">
-      <span class="status-dot"><i></i> WORKBUDDY HOSTED</span>
+      <span class="status-dot" id="host-badge"><i></i> WORKBUDDY HOSTED</span>
       <button class="text-btn" id="help-button" type="button"><svg><use href="#i-info"/></svg> 使用说明</button>
     </div>
   </header>
@@ -299,7 +299,7 @@
 
           <div class="notice error" id="export-error" role="alert" hidden></div>
           <button class="compose-btn" id="compose-button" type="button" disabled>
-            <svg><use href="#i-play"/></svg><span>合成 GIF</span><small>FFMPEG 本地渲染</small>
+            <svg><use href="#i-play"/></svg><span>合成 GIF</span><small id="compose-engine">FFMPEG 渲染</small>
           </button>
         </div>
 
@@ -329,7 +329,7 @@
 
   <footer class="site-footer">
     <span>GIFMOJI / BUILT FOR WORKBUDDY</span>
-    <span>HY IMAGE 3.5 PREVIEW × FFMPEG</span>
+    <span>HY IMAGE 3.5 PREVIEW × <span id="footer-engine">FFMPEG</span></span>
   </footer>
 
   <div class="modal" id="help-modal" hidden>
