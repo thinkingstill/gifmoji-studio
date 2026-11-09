@@ -64,17 +64,20 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .brand { display: inline-flex; align-items: center; gap: 10px; }
 
 .mark {
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
   width: 42px;
   height: 42px;
   border-radius: 11px;
   background: var(--ink);
   color: var(--lime);
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: 14.5px;
   font-weight: 700;
-  letter-spacing: -0.5px;
+  letter-spacing: -0.4px;
+  white-space: nowrap;
 }
 .mark span { color: var(--orange); }
 
@@ -343,7 +346,18 @@ h2 {
 .cards p { margin: 0; font-size: 13.5px; color: var(--muted); }
 
 .note p { max-width: 720px; font-size: 15px; color: #3c3e35; }
-.note strong { background: linear-gradient(transparent 62%, var(--lime) 62%); }
+.note strong { position: relative; z-index: 0; font-weight: 700; color: var(--ink); }
+.note strong::before {
+  content: "";
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  bottom: 0.04em;
+  height: 0.42em;
+  z-index: -1;
+  border-radius: 2px;
+  background: var(--lime);
+}
 
 .split { display: grid; gap: 14px; margin-top: 22px; }
 @media (min-width: 640px) { .split { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
