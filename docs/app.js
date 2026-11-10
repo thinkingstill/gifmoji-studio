@@ -314,6 +314,21 @@ function isHttpUrl(value) {
 }
 
 /**
+ * 静态托管（HTTPS 页面）只能加载 HTTPS 图片。
+ * 浏览器会以 mixed content 直接拦掉 http 资源，报错只是笼统的 "Failed to fetch"，
+ * 所以这里提前判断，给出能指导用户改什么的说明。
+ */
+function assertSameSiteProtocol(value) {
+  if (window.location.protocol !== 'https:') return;
+  const url = new URL(value);
+  if (url.protocol !== 'http:') return;
+  const host = url.hostname;
+  // 浏览器对 localhost 的混合内容有豁免，真实场景里也常用来本地调试
+  if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') return;
+  throw new Error('当前页面是 HTTPS，浏览器不允许加载 HTTP 图片；请改用 https 链接，或直接本地上传。');
+}
+
+/**
  * 用链接作为参考图。
  * 有后端时把地址交给服务端去拉（服务端不受 CORS 限制）；
  * 没有后端时只能由浏览器自己取，取不到就明确告诉用户改成本地上传。
@@ -346,6 +361,12 @@ async function applyReferenceUrl(rawValue) {
   }
 
   // 静态托管：浏览器直连，先落成本地文件才能参与后续处理
+  try {
+    assertSameSiteProtocol(value);
+  } catch (error) {
+    showError(els.createError, error.message);
+    return false;
+  }
   els.referenceUrlInput.disabled = true;
   try {
     const blob = await fetchAsBlob(value);
@@ -886,6 +907,15 @@ async function importFromUrls(rawText) {
     resetGif();
     renderFrames();
     return urls.length;
+  }
+
+  // 静态托管：浏览器直连，先把混合内容问题挡在前面，否则只会报 Failed to fetch
+  for (const [index, url] of urls.entries()) {
+    try {
+      assertSameSiteProtocol(url);
+    } catch (error) {
+      throw new Error(`第 ${index + 1} 个链接：${error.message}`);
+    }
   }
 
   const room = 8 - state.frames.length;
