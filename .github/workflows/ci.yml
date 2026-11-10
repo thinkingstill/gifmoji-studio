@@ -50,7 +50,23 @@ jobs:
         run: |
           node --check server.js
           node --check public/app.js
+          node --check public/giflite.js
+          node --check public/directgen.js
+          node --check public/backend.js
+          node --check scripts/sync-docs.mjs
           node --check test/smoke.mjs
+
+      - name: docs/ 与 public/ 必须同步
+        run: |
+          node scripts/sync-docs.mjs
+          if [ -n "$(git status --porcelain -- docs)" ]; then
+            echo "::error::docs/ 与 public/ 不同步，请在本地执行 npm run sync:docs 后提交"
+            git --no-pager diff --stat -- docs
+            exit 1
+          fi
+
+      - name: 前端编码器单元测试（方案 C：量化 / 抖动 / LZW / ZIP）
+        run: npm run test:unit
 
       - name: 冒烟测试（上传分镜 → FFmpeg 合成 GIF → 下载校验）
         run: npm test

@@ -10,7 +10,9 @@
     "dev": "node --watch server.js",
     "test": "node test/smoke.mjs",
     "audit": "npm audit --omit=dev --audit-level=high",
-    "sync:docs": "node scripts/sync-docs.mjs"
+    "sync:docs": "node scripts/sync-docs.mjs",
+    "test:unit": "node --test test/giflite.test.mjs",
+    "test:all": "node --test test/giflite.test.mjs && node test/smoke.mjs"
   },
   "engines": {
     "node": ">=20"

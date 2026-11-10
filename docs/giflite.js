@@ -307,7 +307,6 @@ export async function composeGif({ urls, width = 320, fps = 10, holdMs = 220, qu
   let dither = DITHER[quality] || DITHER.high;
   // 每帧显示时长 = 停留时间 + 该帧帧率对应时长，贴近 FFmpeg 的 concat+fps 效果
   const delayCs = Math.max(2, Math.round((holdMs + 1000 / fps) / 10));
-  const pages = 0;
   let blob = null;
 
   for (let pass = 0; pass < 4; pass += 1) {
@@ -336,7 +335,7 @@ export async function composeGif({ urls, width = 320, fps = 10, holdMs = 220, qu
     bytes: blob.size,
     width: size,
     height: size,
-    pages,
+    pages: urls.length,
     underLimit: maxKb ? blob.size <= maxKb * 1024 : null
   };
 }
@@ -364,7 +363,11 @@ export async function zipImages(entries) {
   let offset = 0;
 
   for (const entry of entries) {
-    const nameBytes = encoder.encode(entry.name);
+    // 分镜标题来自用户输入，可能带路径分隔符或控制字符，这里统一清洗
+    const safeName = String(entry.name || 'frame.png')
+      .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-')
+      .slice(0, 80) || 'frame.png';
+    const nameBytes = encoder.encode(safeName);
     const dataBytes = new Uint8Array(await entry.blob.arrayBuffer());
     const crc = crc32(dataBytes);
     const local = new Uint8Array(30 + nameBytes.length);

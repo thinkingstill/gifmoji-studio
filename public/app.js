@@ -408,10 +408,27 @@ function hideProgress() {
   els.stageProgress.hidden = true;
 }
 
+/** 回收本地模式占用的 Blob URL，避免反复合成/重排后内存只增不减 */
+function releaseLocalBlobs() {
+  if (state.localGifUrl) {
+    URL.revokeObjectURL(state.localGifUrl);
+    state.localGifUrl = '';
+  }
+  if (state.localZipUrl) {
+    URL.revokeObjectURL(state.localZipUrl);
+    state.localZipUrl = '';
+  }
+  // 图片元素还指向上面的地址，先解绑再释放，否则 Safari 会继续持有引用
+  els.gifImage.removeAttribute('src');
+  els.downloadGif.removeAttribute('href');
+  els.downloadFrames.removeAttribute('href');
+  $('#wechat-download').removeAttribute('href');
+}
+
 function resetGif() {
   state.gif = null;
+  releaseLocalBlobs();
   els.gifImage.hidden = true;
-  els.gifImage.removeAttribute('src');
   els.gifPlaceholder.hidden = false;
   els.gifSize.hidden = true;
   els.exportActions.hidden = true;
@@ -845,14 +862,14 @@ async function composeLocally(options) {
     bytes: result.bytes,
     width: result.width,
     height: result.height,
-    pages: frames.length,
+    pages: result.pages,
     underLimit: result.underLimit,
     local: true
   };
   els.gifSize.textContent = `${result.width}×${result.height} · ${humanSize(result.bytes)}`;
   els.gifSize.hidden = false;
   els.exportActions.hidden = false;
-  els.downloadMeta.textContent = `${humanSize(result.bytes)} · ${frames.length} 帧 · 浏览器合成`;
+  els.downloadMeta.textContent = `${humanSize(result.bytes)} · ${result.pages} 帧 · 浏览器合成`;
   if (result.underLimit === false) {
     showError(els.exportError, '已尝试压缩，但仍略高于目标体积。可改用 240px 或轻量画质。');
   } else {
