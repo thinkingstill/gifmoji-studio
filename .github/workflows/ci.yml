@@ -29,15 +29,16 @@ jobs:
         uses: actions/checkout@v5
 
       - name: 安装 FFmpeg
-        # GitHub runner 偶发 apt 源超时（单次曾卡 5 分钟）：默认单个源会重试约 2 分钟。
-        # 用 Acquire 超时让单个源 10 秒内快速失败，再整体重试，避免整条流水线被拖死。
+        # Ubuntu 26.04 的 ffmpeg 会拉 80+ 个依赖包，install 需要 2 分钟上下。
+        # 用 Acquire 超时让单个慢源 10 秒内快速失败（update 秒过），
+        # 而 install 给足 300 秒，避免被 timeout 反复杀掉后重试、白等。
         run: |
           if ! command -v ffmpeg >/dev/null 2>&1; then
             export DEBIAN_FRONTEND=noninteractive
             export APT_OPTS="-o Acquire::Retries=2 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 -o Acquire::ftp::Timeout=10"
             for attempt in 1 2 3; do
               if timeout 90 sudo apt-get $APT_OPTS update \
-                && timeout 120 sudo apt-get $APT_OPTS install -y --no-install-recommends ffmpeg; then
+                && timeout 300 sudo apt-get $APT_OPTS install -y --no-install-recommends ffmpeg; then
                 break
               fi
               echo "::warning::FFmpeg 安装第 ${attempt} 次失败，重试中…"
