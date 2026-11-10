@@ -1,7 +1,7 @@
 {
-  "conclusion": "success",
-  "runNumber": 14,
-  "runUrl": "https://github.com/thinkingstill/gifmoji-studio/actions/runs/42747205300",
-  "commit": "027a886efe8d6f21877a3a91c6dcad6e3a29b200",
-  "updatedAt": "2026-11-10T03:11:42Z"
+  "conclusion": "failure",
+  "runNumber": 15,
+  "runUrl": "https://github.com/thinkingstill/gifmoji-studio/actions/runs/42771608094",
+  "commit": "2f104c894c8bb38aa2c2bda69b18f1c8c1b1fd55",
+  "updatedAt": "2026-11-10T07:01:01Z"
 }
