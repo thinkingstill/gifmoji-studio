@@ -1,5 +1,5 @@
 import * as api from './backend.js';
-import { composeGif as composeLocalGif, zipImages } from './giflite.js';
+import { composeGif as composeLocalGif, zipImages, fetchAsBlob } from './giflite.js';
 import { generateFrames as generateLocalFrames } from './directgen.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -16,6 +16,8 @@ const state = {
   },
   referenceFile: null,
   referenceUrl: '',
+  /** 用户粘贴的参考图外链：有后端时交给服务端拉取，绕开浏览器 CORS */
+  referenceRemoteUrl: '',
   sessionId: '',
   frames: [],
   frameCount: 6,
@@ -40,6 +42,8 @@ const els = {
   referenceImage: $('#reference-image'),
   referenceName: $('#reference-name'),
   removeReference: $('#remove-reference'),
+  referenceUrlInput: $('#reference-url'),
+  applyReferenceUrl: $('#apply-reference-url'),
   prompt: $('#prompt-input'),
   promptCount: $('#prompt-count'),
   style: $('#style-select'),
@@ -289,28 +293,124 @@ function setReference(file) {
   }
   if (state.referenceUrl) URL.revokeObjectURL(state.referenceUrl);
   state.referenceFile = file;
+  state.referenceRemoteUrl = '';
   state.referenceUrl = URL.createObjectURL(file);
   els.referenceImage.src = state.referenceUrl;
   els.referenceName.textContent = `${file.name} · ${humanSize(file.size)}`;
   els.referencePreview.hidden = false;
   els.dropzone.hidden = true;
+  els.referenceUrlInput.value = '';
   clearError(els.createError);
+}
+
+/** 只接受 http(s)，其余（data:、file:、javascript: 等）一律挡在前面 */
+function isHttpUrl(value) {
+  try {
+    const url = new URL(String(value).trim());
+    return url.protocol === 'https:' || url.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 用链接作为参考图。
+ * 有后端时把地址交给服务端去拉（服务端不受 CORS 限制）；
+ * 没有后端时只能由浏览器自己取，取不到就明确告诉用户改成本地上传。
+ */
+async function applyReferenceUrl(rawValue) {
+  const value = String(rawValue || '').trim();
+  if (!value) {
+    showError(els.createError, '请先粘贴一个图片链接。');
+    els.referenceUrlInput.focus();
+    return false;
+  }
+  if (!isHttpUrl(value)) {
+    showError(els.createError, '链接需要以 http:// 或 https:// 开头。');
+    els.referenceUrlInput.focus();
+    return false;
+  }
+
+  if (api.isReady()) {
+    // 服务端拉取，前端无法预检，只做一次可显示性预览
+    if (state.referenceUrl) URL.revokeObjectURL(state.referenceUrl);
+    state.referenceFile = null;
+    state.referenceUrl = '';
+    state.referenceRemoteUrl = value;
+    els.referenceImage.src = value;
+    els.referenceName.textContent = '来自链接 · 生成时由服务端下载';
+    els.referencePreview.hidden = false;
+    els.dropzone.hidden = true;
+    clearError(els.createError);
+    return true;
+  }
+
+  // 静态托管：浏览器直连，先落成本地文件才能参与后续处理
+  els.referenceUrlInput.disabled = true;
+  try {
+    const blob = await fetchAsBlob(value);
+    if (!/^image\//i.test(blob.type)) throw new Error('该链接返回的不是图片');
+    const name = decodeURIComponent(new URL(value).pathname.split('/').pop() || '') || 'reference';
+    const file = new File([blob], name, { type: blob.type });
+    setReference(file);
+    return true;
+  } catch (error) {
+    showError(els.createError, `无法读取该链接：${error.message}。可以换成先下载再本地上传。`);
+    return false;
+  } finally {
+    els.referenceUrlInput.disabled = false;
+  }
 }
 
 function removeReference() {
   if (state.referenceUrl) URL.revokeObjectURL(state.referenceUrl);
   state.referenceFile = null;
   state.referenceUrl = '';
+  state.referenceRemoteUrl = '';
   els.referenceInput.value = '';
+  els.referenceUrlInput.value = '';
   els.referenceImage.removeAttribute('src');
   els.referencePreview.hidden = true;
   els.dropzone.hidden = false;
+}
+
+function setupPaste() {
+  // 在页面任意位置 Ctrl/Cmd+V：贴图片文件就进参考图，贴链接就填进参考图链接框
+  document.addEventListener('paste', (event) => {
+    const target = event.target;
+    // 输入框里的粘贴交给浏览器默认行为，别抢
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
+
+    const files = Array.from(event.clipboardData?.files || []).filter((file) => /^image\//.test(file.type));
+    if (files.length) {
+      event.preventDefault();
+      setReference(files[0]);
+      toast('已从剪贴板读取参考图');
+      return;
+    }
+
+    const text = String(event.clipboardData?.getData('text/plain') || '').trim();
+    if (!text) return;
+    const first = text.split(/\s+/).find((item) => isHttpUrl(item));
+    if (!first) return;
+    event.preventDefault();
+    els.referenceUrlInput.value = first;
+    els.referenceUrlInput.focus();
+    toast('已识别链接，点击「使用链接」或按回车应用');
+  });
 }
 
 function setupUpload() {
   els.dropzone.addEventListener('click', () => els.referenceInput.click());
   els.referenceInput.addEventListener('change', () => setReference(els.referenceInput.files?.[0]));
   els.removeReference.addEventListener('click', removeReference);
+
+  els.applyReferenceUrl.addEventListener('click', () => applyReferenceUrl(els.referenceUrlInput.value));
+  els.referenceUrlInput.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    els.applyReferenceUrl.click();
+  });
 
   ['dragenter', 'dragover'].forEach((eventName) => {
     els.dropzone.addEventListener(eventName, (event) => {
@@ -325,7 +425,14 @@ function setupUpload() {
     });
   });
   els.dropzone.addEventListener('drop', (event) => {
-    setReference(event.dataTransfer?.files?.[0]);
+    const file = event.dataTransfer?.files?.[0];
+    if (file) {
+      setReference(file);
+      return;
+    }
+    // 从别的页面拖链接过来时，dataTransfer 里只有 text/uri-list
+    const link = event.dataTransfer?.getData('text/uri-list') || event.dataTransfer?.getData('text/plain');
+    if (link && isHttpUrl(link)) applyReferenceUrl(link);
   });
 }
 
@@ -683,6 +790,8 @@ async function startGeneration() {
 
   const form = new FormData();
   if (state.referenceFile) form.append('reference', state.referenceFile);
+  // 粘贴的是链接时交给服务端拉取，前端不需要先把图下载一遍
+  if (!state.referenceFile && state.referenceRemoteUrl) form.append('referenceUrl', state.referenceRemoteUrl);
   form.append('prompt', prompt);
   form.append('style', els.style.value);
   form.append('motion', els.motion.value);
@@ -750,6 +859,100 @@ async function importFrames(files) {
     showError(els.createError, error.message);
     toast(error.message, 'error');
   }
+}
+
+/**
+ * 按链接导入分镜。有后端时由服务端逐张下载（不受 CORS 限制），
+ * 静态托管时退化为浏览器逐个 fetch，失败会指出是第几个链接。
+ */
+async function importFromUrls(rawText) {
+  const urls = String(rawText || '')
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (!urls.length) throw new Error('请至少粘贴一个图片链接。');
+  if (urls.length > 8) throw new Error(`一次最多导入 8 个链接，当前有 ${urls.length} 个。`);
+  const bad = urls.findIndex((item) => !isHttpUrl(item));
+  if (bad !== -1) throw new Error(`第 ${bad + 1} 个链接不是有效的 http(s) 地址。`);
+
+  if (api.isReady()) {
+    const data = await request('/api/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: state.sessionId, urls })
+    });
+    applySession(data.session);
+    resetGif();
+    renderFrames();
+    return urls.length;
+  }
+
+  const room = 8 - state.frames.length;
+  if (room <= 0) throw new Error('分镜台最多保留 8 帧，请先删除不需要的分镜。');
+  const picked = urls.slice(0, room);
+  const added = [];
+  for (const [index, url] of picked.entries()) {
+    let blob;
+    try {
+      blob = await fetchAsBlob(url);
+    } catch (error) {
+      throw new Error(`第 ${index + 1} 个链接读取失败：${error.message}。多数是对方没开跨域，可改用本地上传。`);
+    }
+    if (!/^image\//i.test(blob.type)) throw new Error(`第 ${index + 1} 个链接返回的不是图片。`);
+    const objectUrl = URL.createObjectURL(blob);
+    const size = await readImageSize(objectUrl);
+    added.push({
+      id: `local-${Math.random().toString(16).slice(2, 10)}`,
+      url: objectUrl,
+      objectUrl: true,
+      width: size.width,
+      height: size.height,
+      caption: '链接分镜'
+    });
+  }
+  state.frames = [...state.frames, ...added];
+  resetGif();
+  renderFrames();
+  return added.length;
+}
+
+function setupUrlImport() {
+  const modal = $('#url-modal');
+  const input = $('#url-input');
+  const error = $('#url-error');
+  const submit = $('#url-submit');
+
+  const open = () => {
+    clearError(error);
+    openModal(modal);
+    setTimeout(() => input.focus(), 60);
+  };
+
+  $('#import-url-button').addEventListener('click', open);
+  $('#empty-import-url')?.addEventListener('click', open);
+
+  submit.addEventListener('click', async () => {
+    clearError(error);
+    submit.disabled = true;
+    submit.textContent = '导入中…';
+    try {
+      const count = await importFromUrls(input.value);
+      closeModal(modal);
+      input.value = '';
+      toast(`已导入 ${count} 张分镜`);
+    } catch (err) {
+      showError(error, err.message);
+    } finally {
+      submit.disabled = false;
+      submit.textContent = '导入图片';
+    }
+  });
+
+  // Ctrl/Cmd + Enter 直接提交
+  input.addEventListener('keydown', (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') submit.click();
+  });
 }
 
 function setupImport() {
@@ -959,18 +1162,21 @@ function setupCompose() {
   els.maxSize.addEventListener('input', resetGif);
 }
 
-function setupModals() {
-  const openModal = (modal) => {
-    modal.hidden = false;
-    document.body.style.overflow = 'hidden';
-    const close = modal.querySelector('.modal-close');
-    if (close) close.focus();
-  };
-  const closeModal = (modal) => {
-    modal.hidden = true;
-    document.body.style.overflow = '';
-  };
+function openModal(modal) {
+  if (!modal) return;
+  modal.hidden = false;
+  document.body.style.overflow = 'hidden';
+  const close = modal.querySelector('.modal-close');
+  if (close) close.focus();
+}
 
+function closeModal(modal) {
+  if (!modal) return;
+  modal.hidden = true;
+  document.body.style.overflow = '';
+}
+
+function setupModals() {
   $('#help-button').addEventListener('click', () => openModal($('#help-modal')));
   $('#wechat-button').addEventListener('click', () => openModal($('#wechat-modal')));
   $$('.modal').forEach((modal) => {
@@ -1076,6 +1282,8 @@ function init() {
   setupKey();
   setupGenerate();
   setupImport();
+  setupUrlImport();
+  setupPaste();
   setupOptions();
   setupCompose();
   setupModals();

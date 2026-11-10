@@ -406,6 +406,7 @@ textarea:focus { outline: 0; border-color: var(--ink); box-shadow: 0 0 0 3px rgb
 }
 .ghost-btn:hover { background: var(--ink); color: var(--panel); }
 .ghost-btn svg { width: 14px; height: 14px; }
+.empty-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 
 .stage-progress { margin: 18px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: #fffdf6; }
 .progress-head { display: flex; justify-content: space-between; gap: 20px; align-items: baseline; font-size: 11px; font-weight: 650; }
@@ -582,6 +583,23 @@ textarea:focus { outline: 0; border-color: var(--ink); box-shadow: 0 0 0 3px rgb
 .modal-tip { margin-top: 12px; padding: 11px; display: flex; gap: 8px; border-radius: 9px; background: #f1ede2; color: var(--muted); }
 .modal-tip svg { width: 15px; height: 15px; flex: 0 0 auto; margin-top: 1px; }
 .modal-tip p { margin: 0; font-size: 8.5px; line-height: 1.65; }
+.modal-lead { margin: -8px 0 14px; font-size: 9.5px; line-height: 1.7; color: var(--muted); }
+.modal-card textarea { min-height: 128px; font: 11px/1.6 var(--mono); resize: vertical; }
+.modal-actions { margin-top: 14px; display: flex; justify-content: flex-end; gap: 8px; }
+.modal-actions .ghost-btn, .modal-actions .primary-btn { width: auto; padding: 9px 17px; }
+.url-row { margin-top: 8px; display: flex; align-items: center; gap: 7px; }
+.url-row input {
+  flex: 1; min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fffefa;
+  font: 9.5px var(--mono);
+  color: var(--ink);
+}
+.url-row input::placeholder { color: #a8a495; }
+.url-row input:focus { outline: none; border-color: var(--purple); box-shadow: 0 0 0 3px rgba(124,92,255,.12); }
+.url-row .text-btn { flex: 0 0 auto; white-space: nowrap; }
 .phone-steps > div { display: grid; grid-template-columns: 30px 1fr; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); }
 .phone-steps span { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 7px; background: #1aad19; color: #fff; font: 650 9px var(--mono); }
 .phone-steps p { margin: 0; font-size: 9.5px; line-height: 1.65; color: var(--muted); }

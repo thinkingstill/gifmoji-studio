@@ -66,7 +66,8 @@ app.use((req, res, next) => {
   res.setHeader(
     'Content-Security-Policy',
     "default-src 'self'; "
-      + "img-src 'self' data: blob: https:; "
+      // 参考图支持粘贴外链，http 只放行本机（与 connect-src 保持一致）
+      + "img-src 'self' data: blob: https: http://localhost:* http://127.0.0.1:*; "
       + "style-src 'self' 'unsafe-inline'; script-src 'self'; "
       // 允许前端把请求发往任意 HTTPS 后端（静态托管时需填写自定义服务地址）
       + "connect-src 'self' https: http://localhost:* http://127.0.0.1:*; "
@@ -91,11 +92,15 @@ function asyncRoute(handler) {
   return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 }
 
+// 同一 IP 在窗口期内的写操作上限，默认 10 分钟 12 次；部署在反代后面时可放宽
+const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 10 * 60 * 1000);
+const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 12);
+
 function rateLimit(req, res, next) {
   const now = Date.now();
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
-  const windowMs = 10 * 60 * 1000;
-  const max = 12;
+  const windowMs = RATE_LIMIT_WINDOW_MS;
+  const max = RATE_LIMIT_MAX;
   const bucket = rateBuckets.get(ip) || { start: now, count: 0 };
   if (now - bucket.start > windowMs) {
     bucket.start = now;
@@ -263,41 +268,88 @@ function blockedIp(address) {
   }
 }
 
-async function assertSafeRemoteUrl(rawUrl) {
+async function assertSafeRemoteUrl(rawUrl, label = '接口地址') {
   if (typeof rawUrl !== 'string' || rawUrl.length > 2048) {
-    throw httpError(400, '接口地址无效或过长。', 'invalid_endpoint');
+    throw httpError(400, `${label}无效或过长。`, 'invalid_endpoint');
   }
   let url;
   try {
     url = new URL(rawUrl);
   } catch {
-    throw httpError(400, '接口地址格式不正确，请填写完整的 HTTPS URL。', 'invalid_endpoint');
+    throw httpError(400, `${label}格式不正确，请填写完整的 HTTPS URL。`, 'invalid_endpoint');
   }
   if (!['https:', 'http:'].includes(url.protocol)) {
-    throw httpError(400, '接口地址必须是 HTTPS URL。', 'invalid_endpoint');
+    throw httpError(400, `${label}必须是 HTTPS URL。`, 'invalid_endpoint');
   }
   if (url.protocol === 'http:' && !ALLOW_PRIVATE_MODEL_URL) {
-    throw httpError(400, '出于安全考虑，自定义接口必须使用 HTTPS。', 'insecure_endpoint');
+    throw httpError(400, `出于安全考虑，${label}必须使用 HTTPS。`, 'insecure_endpoint');
   }
   if (url.username || url.password) {
-    throw httpError(400, '不要在接口地址中包含用户名或密码。', 'invalid_endpoint');
+    throw httpError(400, `不要在${label}中包含用户名或密码。`, 'invalid_endpoint');
   }
   const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local') || hostname === 'metadata.google.internal') {
-    throw httpError(400, '出于安全限制，接口地址不能指向本机或内网。', 'private_endpoint');
+    throw httpError(400, `出于安全限制，${label}不能指向本机或内网。`, 'private_endpoint');
   }
 
   let addresses;
   try {
     addresses = net.isIP(hostname) ? [{ address: hostname }] : await dns.lookup(hostname, { all: true, verbatim: true });
   } catch {
-    throw httpError(400, '无法解析自定义接口域名，请检查地址。', 'invalid_endpoint');
+    throw httpError(400, `无法解析${label}的域名，请检查地址。`, 'invalid_endpoint');
   }
-  if (!addresses.length) throw httpError(400, '接口域名没有可用地址。', 'invalid_endpoint');
+  if (!addresses.length) throw httpError(400, `${label}的域名没有可用地址。`, 'invalid_endpoint');
   if (!ALLOW_PRIVATE_MODEL_URL && addresses.some((entry) => blockedIp(entry.address))) {
-    throw httpError(400, '出于安全限制，接口地址不能指向本机、内网或保留地址。', 'private_endpoint');
+    throw httpError(400, `出于安全限制，${label}不能指向本机、内网或保留地址。`, 'private_endpoint');
   }
   return url;
+}
+
+const MAX_REMOTE_IMAGE_BYTES = 15 * 1024 * 1024;
+const REMOTE_IMAGE_TIMEOUT_MS = 15000;
+
+/**
+ * 从用户提供的链接拉取一张图片。
+ * 沿用 assertSafeRemoteUrl 的内网拦截，并额外做了三件事：
+ * 1. 禁止跟随重定向 —— 否则可以先给一个公网地址、再 302 到 127.0.0.1 绕开校验；
+ * 2. 校验 content-type 必须是图片；
+ * 3. 流式累计字节数，content-length 缺失时也能在超限的第一时间中断。
+ */
+async function fetchRemoteImage(rawUrl, label = '图片链接') {
+  const url = await assertSafeRemoteUrl(rawUrl, label);
+  let response;
+  try {
+    response = await fetch(url, {
+      redirect: 'error',
+      signal: AbortSignal.timeout(REMOTE_IMAGE_TIMEOUT_MS),
+      headers: { accept: 'image/*' }
+    });
+  } catch (error) {
+    const reason = error?.name === 'TimeoutError' ? '请求超时' : '网络不可达或被拒绝';
+    throw httpError(400, `${label}无法访问：${reason}。`, 'image_unreachable');
+  }
+  if (!response.ok) {
+    throw httpError(400, `${label}返回 ${response.status}，请确认链接可以直接打开。`, 'image_unreachable');
+  }
+  const type = String(response.headers.get('content-type') || '').toLowerCase();
+  if (!type.startsWith('image/')) {
+    throw httpError(400, `${label}指向的不是图片（返回 ${type || '未知类型'}）。`, 'image_not_image');
+  }
+  const declared = Number(response.headers.get('content-length') || 0);
+  if (declared > MAX_REMOTE_IMAGE_BYTES) {
+    throw httpError(400, `${label}对应的图片超过 15 MB。`, 'image_too_large');
+  }
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of response.body) {
+    total += chunk.length;
+    if (total > MAX_REMOTE_IMAGE_BYTES) {
+      throw httpError(400, `${label}对应的图片超过 15 MB。`, 'image_too_large');
+    }
+    chunks.push(chunk);
+  }
+  if (!total) throw httpError(400, `${label}返回了空内容。`, 'image_empty');
+  return { buffer: Buffer.concat(chunks), mime: type.split(';')[0].trim() };
 }
 
 function inferProtocol(url) {
@@ -729,15 +781,41 @@ app.post('/api/sessions', asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/import', rateLimit, upload.array('frames', MAX_FRAMES), asyncRoute(async (req, res) => {
-  if (!req.files?.length) throw httpError(400, '请选择至少一张图片。');
+  // 前端可能传文件、传链接，或两者混合；链接按换行/逗号分隔，也接受 JSON 数组
+  let urlList = [];
+  const rawUrls = String(req.body.urls || '').trim();
+  if (rawUrls) {
+    if (rawUrls.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(rawUrls);
+        if (Array.isArray(parsed)) urlList = parsed.map((item) => String(item).trim()).filter(Boolean);
+      } catch {
+        throw httpError(400, '图片链接列表格式不正确。');
+      }
+    } else {
+      urlList = rawUrls.split(/[\n,]+/).map((item) => item.trim()).filter(Boolean);
+    }
+  }
+  // 宁可报错也不静默截断：否则用户以为 9 张都导入了，实际只进来 8 张
+  if (urlList.length > MAX_FRAMES) {
+    throw httpError(400, `一次最多导入 ${MAX_FRAMES} 个链接，当前有 ${urlList.length} 个。`);
+  }
+
+  const files = req.files || [];
+  if (!files.length && !urlList.length) throw httpError(400, '请选择图片，或粘贴至少一个图片链接。');
   const session = req.body.sessionId
     ? getSession(safeId(req.body.sessionId))
     : await createSession();
-  if (session.frames.length + req.files.length > MAX_FRAMES) {
+  if (session.frames.length + files.length + urlList.length > MAX_FRAMES) {
     throw httpError(400, `分镜台最多保留 ${MAX_FRAMES} 帧，请先删除不需要的分镜。`);
   }
-  for (const file of req.files) {
+  for (const file of files) {
     await saveUploadedFrame(session, file.buffer, '自定义分镜');
+  }
+  // 逐张拉取：并发拉多个外链容易同时触发对方限流，串行更稳且进度可预期
+  for (const [index, item] of urlList.entries()) {
+    const remote = await fetchRemoteImage(item, `第 ${index + 1} 个分镜链接`);
+    await saveUploadedFrame(session, remote.buffer, '链接分镜');
   }
   res.json({ session: sessionPublic(session) });
 }));
@@ -761,7 +839,13 @@ app.post('/api/generate', rateLimit, upload.single('reference'), asyncRoute(asyn
   if (!Number.isInteger(frameCount)) throw httpError(400, '分镜数量必须是整数。');
   const style = String(req.body.style || '3D黏土质感').slice(0, 80);
   const motion = String(req.body.motion || 'Q弹夸张').slice(0, 80);
-  const reference = await prepareReference(req.file);
+  const referenceUrl = String(req.body.referenceUrl || '').trim();
+  let reference = await prepareReference(req.file);
+  // 用户粘贴链接时，图片由服务端去拉：浏览器直接 fetch 外部图片多半会被 CORS 拦下
+  if (!reference && referenceUrl) {
+    const remote = await fetchRemoteImage(referenceUrl, '参考图链接');
+    reference = await prepareReference({ buffer: remote.buffer, mimetype: remote.mime });
+  }
   const endpointPreview = resolveImageEndpoint(baseUrl, protocol, Boolean(reference));
   await assertSafeRemoteUrl(endpointPreview.endpoint.toString());
   const session = await createSession();

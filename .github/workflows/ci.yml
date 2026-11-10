@@ -65,6 +65,7 @@ jobs:
           node --check public/backend.js
           node --check scripts/sync-docs.mjs
           node --check test/smoke.mjs
+          node --check test/remote-image.test.mjs
 
       - name: docs/ 与 public/ 必须同步
         run: |
@@ -77,6 +78,9 @@ jobs:
 
       - name: 前端编码器单元测试（方案 C：量化 / 抖动 / LZW / ZIP）
         run: npm run test:unit
+
+      - name: 链接导入测试（SSRF 拦截 / 大小与类型校验 / 重定向拒绝）
+        run: npm run test:remote
 
       - name: 冒烟测试（上传分镜 → FFmpeg 合成 GIF → 下载校验）
         run: npm test

@@ -12,7 +12,8 @@
     "audit": "npm audit --omit=dev --audit-level=high",
     "sync:docs": "node scripts/sync-docs.mjs",
     "test:unit": "node --test test/giflite.test.mjs",
-    "test:all": "node --test test/giflite.test.mjs && node test/smoke.mjs"
+    "test:all": "node --test test/giflite.test.mjs && node test/remote-image.test.mjs && node test/smoke.mjs",
+    "test:remote": "node test/remote-image.test.mjs"
   },
   "engines": {
     "node": ">=20"
