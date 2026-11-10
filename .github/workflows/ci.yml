@@ -29,9 +29,19 @@ jobs:
         uses: actions/checkout@v5
 
       - name: 安装 FFmpeg
+        # GitHub 托管 runner 的 apt 源偶发超时（曾有一次 apt-get update 卡住 4 分钟），
+        # 这里给单条命令加超时上限，失败重试一次，避免整条流水线被拖死。
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ffmpeg
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            for attempt in 1 2; do
+              if timeout 150 sudo apt-get -o Acquire::Retries=3 update \
+                && timeout 180 sudo apt-get install -y --no-install-recommends ffmpeg; then
+                break
+              fi
+              echo "::warning::FFmpeg 安装第 ${attempt} 次失败，重试中…"
+              sleep 5
+            done
+          fi
           ffmpeg -version | head -n 1
 
       - name: 配置 Node.js

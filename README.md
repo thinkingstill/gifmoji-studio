@@ -96,17 +96,21 @@ CORS_ORIGIN=https://thinkingstill.github.io npm start
 node scripts/sync-docs.mjs   # 自动复制 + 改写路径，并生成 .nojekyll
 ```
 
-`npm test` 会逐文件比对 `docs/` 与 `public/` 的 `app.js`、`backend.js`、`giflite.js`、`directgen.js`、`styles.css`，不一致直接失败。
+`npm test` 会逐文件比对 `docs/` 与 `public/` 的 `app.js`、`backend.js`、`giflite.js`、`directgen.js`、`styles.css`，不一致直接失败；CI 里还有一道同等校验，会当场重新生成并检查工作区是否干净，忘了同步会在流水线上直接拦下。
 
 ## 开发与测试
 
 ```bash
 npm install
-npm test      # 冒烟测试：上传分镜 → FFmpeg 合成 GIF → 校验下载
-npm start     # 本地启动
+npm run test:unit   # 方案 C 编码器单测：量化 / 抖动 / LZW / GIF 合法性 / 体积降级 / ZIP 命名
+npm test            # 冒烟测试：上传分镜 → FFmpeg 合成 GIF → 校验下载
+npm run test:all    # 两者串行执行，CI 等价
+npm start           # 本地启动
 ```
 
 冒烟测试会自行拉起一个仅监听 `127.0.0.1` 的服务实例，使用随机临时目录，**不需要任何模型密钥**，因此可以安全地在 CI 中运行。
+
+单元测试用 `sharp` 真实解码 PNG，并自带一个最小 Canvas 桩来模拟浏览器环境，所以 `giflite.js` 能在 Node 里跑真实的量化与编码路径，而不是只做字符串断言。
 
 ## 持续集成
 
@@ -114,7 +118,7 @@ npm start     # 本地启动
 
 | 任务 | 内容 |
 |---|---|
-| `test` | Node 20 / 22 矩阵：安装 FFmpeg → `npm ci` → 依赖审计 → 语法检查 → 冒烟测试 |
+| `test` | Node 20 / 22 矩阵：安装 FFmpeg → `npm ci` → 依赖审计 → 语法检查 → `docs/` 同步校验 → 前端编码器单测 → 冒烟测试 |
 | `secret-scan` | 扫描全部提交历史中的 PAT / API Key / sharecode 等疑似密钥，并禁止提交 `.env`、依赖与构建产物 |
 | `ci-status` | 汇总结果，可作为分支保护的必过检查 |
 
